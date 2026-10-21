@@ -1,0 +1,37 @@
+[project]
+name = "aipc"
+version = "0.1.0"
+description = "Multi-agent pipeline generating philosophy essays for the AI Philosophy Competition 2026"
+readme = "README.md"
+authors = [
+    { name = "Tom Knight", email = "tomk96@outlook.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "openai>=3.16.2",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.2",
+    "typst>=0.15.0",
+]
+
+[project.scripts]
+aipc = "aipc.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: hits the real API; deselected by default",
+]
+addopts = "-m 'not live'"

@@ -1,0 +1,11 @@
+# Contest essay run, a template. Fill in after the frontier comparison:
+#   condition: the method that won the frontier tournament;
+#   theses: from `aipc ideate --topic ... --tier frontier`, then
+#   `aipc draw-theses --n 3`, pasted unedited.
+# Then: aipc experiment, aipc select --experiment contest, aipc check, aipc export.
+name: contest
+seed: 1
+essays_per_condition: 1
+generator_tier: frontier
+conditions: []
+theses: []

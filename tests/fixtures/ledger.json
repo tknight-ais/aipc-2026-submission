@@ -1,0 +1,31 @@
+{
+  "thesis": "Compatibilism survives the consequence argument once the relevant sense of 'could have done otherwise' is made precise.",
+  "claims": [
+    {
+      "id": "c1",
+      "statement": "The consequence argument relies on a transfer principle for powerlessness that is stronger than it looks.",
+      "support": "Frankfurt (1971) and responses distinguishing ability from alternative possibilities.",
+      "role": "premise"
+    },
+    {
+      "id": "c2",
+      "statement": "An agent can act freely in a deterministic world if the action flows from a will the agent endorses.",
+      "support": "Analogy to reasons-responsive capacities that operate the same way whether or not determinism holds.",
+      "role": "premise"
+    }
+  ],
+  "objections": [
+    {
+      "statement": "If every action is fixed by the past and the laws, endorsing one's will is itself fixed, so it cannot ground freedom.",
+      "target_claim_id": "c2",
+      "reply": "The objection assumes freedom requires an undetermined source; it needs an independent argument that endorsement must be uncaused to count, which it does not supply.",
+      "reply_type": "decisive"
+    }
+  ],
+  "concessions": [
+    "Whether ordinary agents have the reflective capacities the view requires remains an open empirical question."
+  ],
+  "engagements": [
+    "Harry G. Frankfurt, \"Freedom of the Will and the Concept of a Person\""
+  ]
+}
