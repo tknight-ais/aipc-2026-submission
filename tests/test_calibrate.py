@@ -41,9 +41,12 @@ def test_score_levels_detects_a_correctly_ordered_panel(fake_llm, tmp_path):
     # FakeLLM list-cycling means index 0 ("original") sees SCORE_BLOCKS_HIGH's
     # judge_absolute response if we tailor per level instead; simplest here
     # is to make absolute scores depend on essay text via pairwise instead.
-    fake_llm.responses["judge_absolute"] = [SCORE_BLOCKS_HIGH, SCORE_BLOCKS_LOW, SCORE_BLOCKS_LOW, SCORE_BLOCKS_LOW] * len(
-        calibrate_stage.judge_stage.MIRROR_PANEL
-    )
+    fake_llm.responses["judge_absolute"] = [
+        SCORE_BLOCKS_HIGH,
+        SCORE_BLOCKS_LOW,
+        SCORE_BLOCKS_LOW,
+        SCORE_BLOCKS_LOW,
+    ] * len(calibrate_stage.judge_stage.MIRROR_PANEL)
     # compare_both_orderings makes two calls per pair: (less_damaged,
     # more_damaged) then (more_damaged, less_damaged). A judge that
     # correctly prefers the less-damaged essay says "A" first (it's in

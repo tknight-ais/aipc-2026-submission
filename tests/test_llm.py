@@ -1,17 +1,27 @@
 from unittest.mock import patch
 
+import httpx2
 import pytest
 from openai import APITimeoutError
 
 from aipc.config import load_config
-from aipc.llm import CostCeilingExceeded, IncompleteReply, LLMClient
+from aipc.llm import MAX_ATTEMPTS, CostCeilingExceeded, IncompleteReply, LLMClient
 from aipc.openrouter import CompletionResult
 
+TIMEOUT = APITimeoutError(request=httpx2.Request("POST", "https://openrouter.ai/api/v1/chat/completions"))
 
-def _completion(text="essay text", prompt_tokens=100, completion_tokens=100, billed_usd=0.01, finish_reason="stop"):
+
+def _completion(
+    text="essay text", prompt_tokens=100, completion_tokens=100, billed_usd: float | None = 0.01, finish_reason="stop"
+):
     return CompletionResult(
-        text=text, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-        served_model="test/served", provider="TestProvider", generation_id="gen-1", billed_usd=billed_usd,
+        text=text,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        served_model="test/served",
+        provider="TestProvider",
+        generation_id="gen-1",
+        billed_usd=billed_usd,
         finish_reason=finish_reason,
     )
 
@@ -70,7 +80,11 @@ def test_real_call_is_recorded_with_provenance(mock_complete, config):
 
     [call] = recorded
     assert (call.prompt_name, call.prompt, call.response, call.seed) == ("critic", "the prompt", "a reply", 3)
-    assert (call.requested_model, call.served_model, call.provider) == (config.models["cheap"].id, "test/served", "TestProvider")
+    assert (call.requested_model, call.served_model, call.provider) == (
+        config.models["cheap"].id,
+        "test/served",
+        "TestProvider",
+    )
     assert call.billed_usd == 0.01 and call.latency_s >= 0
 
 
@@ -104,11 +118,21 @@ def test_unsupported_sampling_parameters_are_not_sent_and_recorded_as_such(mock_
 @patch("aipc.llm.time.sleep")
 @patch("aipc.llm.complete")
 def test_transient_failure_is_retried_and_counted(mock_complete, mock_sleep, config):
-    mock_complete.side_effect = [APITimeoutError(request=None), _completion()]
+    mock_complete.side_effect = [TIMEOUT, _completion()]
     recorded = []
     LLMClient(config, record=recorded.append).call(tier="cheap", prompt="p")
     assert recorded[0].attempts == 2
     assert mock_sleep.call_count == 1
+
+
+@patch("aipc.llm.time.sleep")
+@patch("aipc.llm.complete")
+def test_a_failure_on_the_last_attempt_propagates(mock_complete, mock_sleep, config):
+    mock_complete.side_effect = TIMEOUT
+    with pytest.raises(APITimeoutError):
+        LLMClient(config).call(tier="cheap", prompt="p")
+    assert mock_complete.call_count == MAX_ATTEMPTS
+    assert mock_sleep.call_count == MAX_ATTEMPTS - 1
 
 
 @patch("aipc.llm.complete")
@@ -126,7 +150,9 @@ def test_dry_run_allows_for_hidden_reasoning(config):
     config.models["cheap"].reasoning = False
     without = LLMClient(config, dry_run=True).call(tier="cheap", prompt="p", prompt_name="draft").completion_tokens
     config.models["cheap"].reasoning = True
-    with_reasoning = LLMClient(config, dry_run=True).call(tier="cheap", prompt="p", prompt_name="draft").completion_tokens
+    with_reasoning = (
+        LLMClient(config, dry_run=True).call(tier="cheap", prompt="p", prompt_name="draft").completion_tokens
+    )
     assert with_reasoning == int(without * 1.5)
 
 

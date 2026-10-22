@@ -17,7 +17,6 @@ This is the viewer's one write path, limited to the human_judgments table.
 """
 
 import random
-from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -42,18 +41,16 @@ class AnchorSet(BaseModel):
 
 def draw(experiment: str, judgments: list[Judgment]) -> AnchorSet:
     """A seeded draw of up to ANCHOR_COUNT position-consistent pairs, each
-    with a seeded on-screen order. Raises if any pair lacks one of its two
-    orderings: the tournament isn't finished.
+    with a seeded on-screen order. Raises, through pair_outcomes, if the
+    tournament isn't finished.
     """
-    per_pair = Counter((j.essay_a_run, j.essay_b_run) for j in judgments)
-    incomplete = [pair for pair, n in per_pair.items() if n != 2]
-    if incomplete:
-        raise ValueError(f"{len(incomplete)} pairs do not have exactly two orderings; finish the tournament first")
     decided = sorted((o.essay_a_run, o.essay_b_run) for o in pair_outcomes(judgments) if o.position_consistent)
     rng = random.Random(ANCHOR_SEED)
     drawn = rng.sample(decided, min(ANCHOR_COUNT, len(decided)))
     anchors = [
-        AnchorPair(experiment=experiment, anchor_index=i, essay_a_run=a, essay_b_run=b, shown_first_run=rng.choice([a, b]))
+        AnchorPair(
+            experiment=experiment, anchor_index=i, essay_a_run=a, essay_b_run=b, shown_first_run=rng.choice([a, b])
+        )
         for i, (a, b) in enumerate(drawn)
     ]
     return AnchorSet(experiment=experiment, decided_pairs=len(decided), anchors=anchors)
@@ -83,11 +80,13 @@ def record(store: Store, experiment: str, index: int, choice: str) -> None:
     if pending is None or pending[0] != index or choice not in ("first", "second"):
         return
     anchor = pending[1]
-    store.save_human_judgment(HumanJudgment(
-        experiment=experiment,
-        essay_a_run=anchor.essay_a_run,
-        essay_b_run=anchor.essay_b_run,
-        shown_first_run=anchor.shown_first_run,
-        winner_run=anchor.shown_first_run if choice == "first" else anchor.shown_second_run,
-        rated_at=datetime.now(UTC).isoformat(),
-    ))
+    store.save_human_judgment(
+        HumanJudgment(
+            experiment=experiment,
+            essay_a_run=anchor.essay_a_run,
+            essay_b_run=anchor.essay_b_run,
+            shown_first_run=anchor.shown_first_run,
+            winner_run=anchor.shown_first_run if choice == "first" else anchor.shown_second_run,
+            rated_at=datetime.now(UTC).isoformat(),
+        )
+    )

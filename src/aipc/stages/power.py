@@ -41,7 +41,11 @@ def _outcome(pair: Pair, quality: dict[str, float], tie_rate: float, rng: random
         a_wins = rng.random() < 1 / (1 + math.exp(quality[b] - quality[a]))
         winner = a if a_wins else b
     return analysis.PairOutcome(
-        thesis_id=pair.thesis_id, essay_a_run=a, essay_b_run=b, winner_run=winner, position_consistent=winner is not None,
+        thesis_id=pair.thesis_id,
+        essay_a_run=a,
+        essay_b_run=b,
+        winner_run=winner,
+        position_consistent=winner is not None,
     )
 
 
@@ -50,14 +54,24 @@ def _excludes_zero(interval: tuple[float, float]) -> bool:
 
 
 def simulate(
-    conditions: list[str], theses: int, essays_per_condition: int, per_essay: int,
-    effect: float, essay_sd: float, tie_rate: float, reps: int, resamples: int, seed: int,
+    conditions: list[str],
+    theses: int,
+    essays_per_condition: int,
+    per_essay: int,
+    effect: float,
+    essay_sd: float,
+    tie_rate: float,
+    reps: int,
+    resamples: int,
+    seed: int,
 ) -> PowerResult:
     rng = random.Random(seed)
     target = conditions[1]
     essays = [
         ExperimentEssay(thesis_id=f"t{t}", condition=c, essay_index=i, run_id=f"t{t}-{c}-{i}", essay_path="")
-        for t in range(theses) for c in conditions for i in range(essays_per_condition)
+        for t in range(theses)
+        for c in conditions
+        for i in range(essays_per_condition)
     ]
     condition_of = {e.run_id: e.condition for e in essays}
     pair_hits = robust_hits = judgments = 0
@@ -66,11 +80,18 @@ def simulate(
         pairs = schedule_pairs(essays, per_essay, seed=rng.randrange(2**31))
         outcomes = [_outcome(p, quality, tie_rate, rng) for p in pairs]
         by_pair = analysis.bootstrap_ci(outcomes, condition_of, conditions, analysis.resample_pairs, resamples)[target]
-        by_essay = analysis.bootstrap_ci(outcomes, condition_of, conditions, analysis.resample_essays, resamples)[target]
+        by_essay = analysis.bootstrap_ci(outcomes, condition_of, conditions, analysis.resample_essays, resamples)[
+            target
+        ]
         pair_hits += _excludes_zero(by_pair)
         robust_hits += _excludes_zero(by_pair) and _excludes_zero(by_essay)
         judgments = 2 * len(pairs)
     return PowerResult(
-        essays_per_condition=essays_per_condition, effect=effect, essay_sd=essay_sd, judgments=judgments,
-        pair_power=pair_hits / reps, robust_power=robust_hits / reps, reps=reps,
+        essays_per_condition=essays_per_condition,
+        effect=effect,
+        essay_sd=essay_sd,
+        judgments=judgments,
+        pair_power=pair_hits / reps,
+        robust_power=robust_hits / reps,
+        reps=reps,
     )

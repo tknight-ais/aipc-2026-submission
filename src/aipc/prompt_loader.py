@@ -13,4 +13,3 @@ def load_prompt(name: str) -> tuple[str, str]:
     text = (PROMPTS_DIR / f"{name}.md").read_text()
     prompt_hash = hashlib.sha256(text.encode()).hexdigest()
     return text, prompt_hash
-

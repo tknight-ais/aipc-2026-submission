@@ -2,8 +2,8 @@
 plus per-sub-question transcripts. Which strategy runs is config
 (`pipeline.strategy`), not a code branch. Two implementations:
 
-- `flat` - one direct call per sub-question, no persona debate. The
-  baseline the Debate Room must beat to earn its cost.
+- `flat` - one direct call per sub-question, no debate. The baseline
+  the Debate Room must beat to earn its cost.
 - `debate_room` - Manager poses each sub-question, two position-defined
   debaters argue it (seeing only published turns, never each other's
   private reasoning), Manager judges convergence and synthesises the
@@ -12,17 +12,23 @@ plus per-sub-question transcripts. Which strategy runs is config
 
 from aipc.context import Context
 from aipc.models import Claim, ContentLedger, DebateTranscript, DebateTurn, Decomposition, Objection
-from aipc.replies import is_none, parse_blocks
+from aipc.replies import is_none, parse_entries
 
-_LEDGER_BLOCK_KEYS = {"CLAIM", "SUPPORT", "OBJECTION", "REPLY", "REPLY_TYPE", "CONCESSION"}
+LEDGER_KEYS = {"CLAIM", "SUPPORT", "OBJECTION", "REPLY", "REPLY_TYPE", "CONCESSION"}
 
 
-def _blocks_to_ledger_parts(blocks: list[dict[str, str]], prefix: str) -> tuple[list[Claim], list[Objection], list[str]]:
+def ledger_parts(reply: str, prefix: str, ctx: Context) -> tuple[list[Claim], list[Objection], list[str]]:
+    """The claims, objections and concessions in one ledger reply.
+
+    A real reply with no readable claim raises: the drafter would
+    otherwise write from an empty ledger, and nothing downstream would
+    notice.
+    """
     claims: list[Claim] = []
     objections: list[Objection] = []
     concessions: list[str] = []
     claim_idx = 0
-    for block in blocks:
+    for block in parse_entries(reply, LEDGER_KEYS, start="CLAIM"):
         if "CONCESSION" in block:
             concessions.append(block["CONCESSION"])
         if "CLAIM" not in block:
@@ -32,12 +38,16 @@ def _blocks_to_ledger_parts(blocks: list[dict[str, str]], prefix: str) -> tuple[
         claims.append(Claim(id=claim_id, statement=block["CLAIM"], support=block.get("SUPPORT", ""), role="premise"))
         if "OBJECTION" in block:
             reply_type = "decisive" if "decisive" in block.get("REPLY_TYPE", "").lower() else "concessive"
-            objections.append(Objection(
-                statement=block["OBJECTION"],
-                target_claim_id=claim_id,
-                reply=block.get("REPLY", ""),
-                reply_type=reply_type,
-            ))
+            objections.append(
+                Objection(
+                    statement=block["OBJECTION"],
+                    target_claim_id=claim_id,
+                    reply=block.get("REPLY", ""),
+                    reply_type=reply_type,
+                )
+            )
+    if not claims and not ctx.config.dry_run:
+        raise ValueError(f"no CLAIM could be read from a ledger reply: {reply[:300]!r}")
     return claims, objections, concessions
 
 
@@ -55,13 +65,15 @@ def run_flat(decomposition: Decomposition, ctx: Context) -> tuple[ContentLedger,
     transcripts = []
     for i, sub_question in enumerate(decomposition.sub_questions):
         result = ctx.ask("ledger_flat", thesis=decomposition.thesis, sub_question=sub_question)
-        parts.append(_blocks_to_ledger_parts(parse_blocks(result.text, _LEDGER_BLOCK_KEYS), prefix=f"sq{i}"))
-        transcripts.append(DebateTranscript(
-            sub_question=sub_question,
-            turns=[DebateTurn(speaker="writer", text=result.text)],
-            converged=True,
-            rounds_used=1,
-        ))
+        parts.append(ledger_parts(result.text, prefix=f"sq{i}", ctx=ctx))
+        transcripts.append(
+            DebateTranscript(
+                sub_question=sub_question,
+                turns=[DebateTurn(speaker="writer", text=result.text)],
+                converged=True,
+                rounds_used=1,
+            )
+        )
 
     return _assemble_ledger(decomposition.thesis, parts), transcripts
 
@@ -70,7 +82,9 @@ def _format_transcript(turns: list[DebateTurn]) -> str:
     return "\n\n".join(f"{t.speaker}: {t.text}" for t in turns) if turns else "(no turns yet)"
 
 
-def _debate_one_sub_question(sub_question: str, thesis: str, min_rounds: int, max_rounds: int, ctx: Context) -> DebateTranscript:
+def _debate_one_sub_question(
+    sub_question: str, thesis: str, min_rounds: int, max_rounds: int, ctx: Context
+) -> DebateTranscript:
     """Convergence is first checked after `min_rounds`: after round 1 every
     point is new by definition, yet a manager checking there tends to call
     the debate converged, leaving a single exchange.
@@ -81,7 +95,9 @@ def _debate_one_sub_question(sub_question: str, thesis: str, min_rounds: int, ma
 
     for round_num in range(1, max_rounds + 1):
         for speaker in ("for", "against"):
-            reply = ctx.ask(f"debater_{speaker}", thesis=thesis, sub_question=sub_question, transcript=_format_transcript(turns))
+            reply = ctx.ask(
+                f"debater_{speaker}", thesis=thesis, sub_question=sub_question, transcript=_format_transcript(turns)
+            )
             turns.append(DebateTurn(speaker=speaker, text=reply.text))
 
         rounds_used = round_num
@@ -95,9 +111,13 @@ def _debate_one_sub_question(sub_question: str, thesis: str, min_rounds: int, ma
     return DebateTranscript(sub_question=sub_question, turns=turns, converged=converged, rounds_used=rounds_used)
 
 
-def _synthesize(transcript: DebateTranscript, prefix: str, ctx: Context) -> tuple[list[Claim], list[Objection], list[str]]:
-    result = ctx.ask("debate_synthesize", sub_question=transcript.sub_question, transcript=_format_transcript(transcript.turns))
-    return _blocks_to_ledger_parts(parse_blocks(result.text, _LEDGER_BLOCK_KEYS), prefix=prefix)
+def _synthesize(
+    transcript: DebateTranscript, prefix: str, ctx: Context
+) -> tuple[list[Claim], list[Objection], list[str]]:
+    result = ctx.ask(
+        "debate_synthesize", sub_question=transcript.sub_question, transcript=_format_transcript(transcript.turns)
+    )
+    return ledger_parts(result.text, prefix=prefix, ctx=ctx)
 
 
 def run_debate_room(decomposition: Decomposition, ctx: Context) -> tuple[ContentLedger, list[DebateTranscript]]:
@@ -107,7 +127,11 @@ def run_debate_room(decomposition: Decomposition, ctx: Context) -> tuple[Content
 
     for i, sub_question in enumerate(decomposition.sub_questions):
         transcript = _debate_one_sub_question(
-            sub_question, decomposition.thesis, pipeline.debate_min_rounds, pipeline.debate_max_rounds, ctx,
+            sub_question,
+            decomposition.thesis,
+            pipeline.debate_min_rounds,
+            pipeline.debate_max_rounds,
+            ctx,
         )
         transcripts.append(transcript)
         parts.append(_synthesize(transcript, prefix=f"sq{i}", ctx=ctx))

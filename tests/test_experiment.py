@@ -8,6 +8,7 @@ from aipc.stages import experiment
 from aipc.store import Store
 
 THESIS = "Free will is compatible with determinism."
+LEDGER_REPLY = "CLAIM: A claim.\nSUPPORT: Its support."
 
 
 def _ctx(fake_llm, tmp_path, condition="A_zero_shot"):
@@ -44,6 +45,7 @@ def test_structured_condition_uses_generator_tier_throughout(fake_llm, tmp_path)
     fake_llm.responses["decompose"] = "- Q1?\n- Q2?"
     fake_llm.responses["validity_gate"] = "VERDICT: PASS\nREASONING: fine"
     fake_llm.responses["decomposition_select"] = "CHOICE: 1\nREASONING: fine"
+    fake_llm.responses["ledger_flat"] = LEDGER_REPLY
     experiment.write_essay("C_structured", THESIS, ctx)
 
     assert {c["tier"] for c in fake_llm.calls} == {"standard"}
@@ -81,15 +83,19 @@ def test_critique_keeps_draft_when_no_critic_objects(fake_llm, tmp_path):
 
 @pytest.mark.parametrize("condition, ledger_prompt", [("C_structured", "ledger_flat"), ("D_debate", "debater_for")])
 def test_structured_conditions_use_their_strategy_and_one_round(fake_llm, tmp_path, condition, ledger_prompt):
-    fake_llm.responses.update({
-        "decompose": "Q1?\nQ2?",
-        "validity_gate": "VERDICT: PASS\nREASONING: ok",
-        "decomposition_select": "CHOICE: 1\nREASONING: ok",
-        "debate_converge": "NONE",
-        "draft": "Draft.",
-        "critic": "An objection.",
-        "revise": "Revised.",
-    })
+    fake_llm.responses.update(
+        {
+            "decompose": "Q1?\nQ2?",
+            "validity_gate": "VERDICT: PASS\nREASONING: ok",
+            "decomposition_select": "CHOICE: 1\nREASONING: ok",
+            "debate_converge": "NONE",
+            "ledger_flat": LEDGER_REPLY,
+            "debate_synthesize": LEDGER_REPLY,
+            "draft": "Draft.",
+            "critic": "An objection.",
+            "revise": "Revised.",
+        }
+    )
     essay, _ = experiment.write_essay(condition, THESIS, _ctx(fake_llm, tmp_path, condition))
 
     names = [c["prompt_name"] for c in fake_llm.calls]
@@ -101,10 +107,14 @@ def test_structured_conditions_use_their_strategy_and_one_round(fake_llm, tmp_pa
 
 def test_load_experiment_rejects_empty_theses_and_unknown_conditions(tmp_path):
     path = tmp_path / "exp.yaml"
-    path.write_text("name: x\nseed: 1\nessays_per_condition: 1\ngenerator_tier: cheap\nconditions: [A_zero_shot]\ntheses: []\n")
+    path.write_text(
+        "name: x\nseed: 1\nessays_per_condition: 1\ngenerator_tier: cheap\nconditions: [A_zero_shot]\ntheses: []\n"
+    )
     with pytest.raises(ValueError, match="no theses"):
         experiment.load_experiment(path)
-    path.write_text("name: x\nseed: 1\nessays_per_condition: 1\ngenerator_tier: cheap\nconditions: [Z]\ntheses: [{id: t1, claim: c}]\n")
+    path.write_text(
+        "name: x\nseed: 1\nessays_per_condition: 1\ngenerator_tier: cheap\nconditions: [Z]\ntheses: [{id: t1, claim: c}]\n"
+    )
     with pytest.raises(ValueError, match="unknown conditions"):
         experiment.load_experiment(path)
 

@@ -11,25 +11,47 @@ CONDITIONS = ["A", "B", "C"]
 
 def _judgment(a, b, shown_first, winner):
     return Judgment(
-        experiment="x", tournament_run_id="t", thesis_id="t1", essay_a_run=a, essay_b_run=b,
-        judge_model="m", shown_first_run=shown_first, winner_run=winner, reasoning="",
+        experiment="x",
+        tournament_run_id="t",
+        thesis_id="t1",
+        essay_a_run=a,
+        essay_b_run=b,
+        judge_model="m",
+        shown_first_run=shown_first,
+        winner_run=winner,
+        reasoning="",
     )
 
 
 def _outcome(a, b, winner):
-    return analysis.PairOutcome(thesis_id="t1", essay_a_run=a, essay_b_run=b, winner_run=winner, position_consistent=winner is not None)
+    return analysis.PairOutcome(
+        thesis_id="t1", essay_a_run=a, essay_b_run=b, winner_run=winner, position_consistent=winner is not None
+    )
 
 
 def test_pair_outcomes_needs_both_orderings_to_agree():
     judgments = [
-        _judgment("a1", "b1", "a1", "a1"), _judgment("a1", "b1", "b1", "a1"),
-        _judgment("a2", "b2", "a2", "a2"), _judgment("a2", "b2", "b2", "b2"),
-        _judgment("a3", "b3", "a3", None), _judgment("a3", "b3", "b3", None),
+        _judgment("a1", "b1", "a1", "a1"),
+        _judgment("a1", "b1", "b1", "a1"),
+        _judgment("a2", "b2", "a2", "a2"),
+        _judgment("a2", "b2", "b2", "b2"),
+        _judgment("a3", "b3", "a3", None),
+        _judgment("a3", "b3", "b3", None),
     ]
     outcomes = {o.essay_a_run: o for o in analysis.pair_outcomes(judgments)}
     assert outcomes["a1"].winner_run == "a1" and outcomes["a1"].position_consistent
     assert outcomes["a2"].winner_run is None and not outcomes["a2"].position_consistent
     assert outcomes["a3"].winner_run is None and not outcomes["a3"].position_consistent
+
+
+def test_pair_outcomes_refuses_a_pair_judged_in_only_one_ordering():
+    judgments = [
+        _judgment("a1", "b1", "a1", "a1"),
+        _judgment("a1", "b1", "b1", "a1"),
+        _judgment("a2", "b2", "a2", "a2"),
+    ]
+    with pytest.raises(ValueError, match="finish the tournament"):
+        analysis.pair_outcomes(judgments)
 
 
 def _simulated(true_log_strength, pairs_per_matchup, seed=0):
@@ -86,7 +108,8 @@ def test_essay_bootstrap_is_wider_when_essays_repeat_across_pairs():
     rng = random.Random(0)
     outcomes = [
         _outcome(a, b, a if rng.random() < 0.7 else b)
-        for _ in range(20) for a, b in [("a1", "b1"), ("a1", "b2"), ("a2", "b1"), ("a2", "b2")]
+        for _ in range(20)
+        for a, b in [("a1", "b1"), ("a1", "b2"), ("a2", "b1"), ("a2", "b2")]
     ]
     width = {
         name: analysis.bootstrap_ci(outcomes, condition_of, ["A", "B"], resample)["B"]
@@ -103,9 +126,10 @@ def test_win_rates_and_position_consistency():
 
 
 def test_verbosity_correlation_detects_longer_wins():
-    words = {"a1": 100, "b1": 50, "a2": 40, "b2": 90, "a3": 120, "b3": 60}
+    words: dict[str, float] = {"a1": 100, "b1": 50, "a2": 40, "b2": 90, "a3": 120, "b3": 60}
     outcomes = [_outcome("a1", "b1", "a1"), _outcome("a2", "b2", "b2"), _outcome("a3", "b3", "a3")]
-    assert analysis.verbosity_correlation(outcomes, words) > 0.9
+    correlation = analysis.verbosity_correlation(outcomes, words)
+    assert correlation is not None and correlation > 0.9
 
 
 def test_agreement_counts_judge_ties_as_disagreement():
@@ -124,7 +148,7 @@ def test_binomial_tail_matches_the_preregistered_bar():
 
 
 def test_longer_won_share_is_defined_when_correlation_is_not():
-    words = {"a1": 10, "b1": 50, "a2": 10, "b2": 90, "a3": 10, "b3": 10}
+    words: dict[str, float] = {"a1": 10, "b1": 50, "a2": 10, "b2": 90, "a3": 10, "b3": 10}
     outcomes = [_outcome("a1", "b1", "b1"), _outcome("a2", "b2", "b2"), _outcome("a3", "b3", None)]
     assert analysis.verbosity_correlation(outcomes, words) is None
     assert analysis.longer_won_share(outcomes, words) == 1.0
@@ -139,7 +163,14 @@ def test_agreement_reports_a_clopper_pearson_interval():
 
 def test_h4_gate_needs_the_whole_anchor_set_rated():
     human = [
-        HumanJudgment(experiment="x", essay_a_run=f"a{i}", essay_b_run=f"b{i}", shown_first_run=f"a{i}", winner_run=f"a{i}", rated_at="t")
+        HumanJudgment(
+            experiment="x",
+            essay_a_run=f"a{i}",
+            essay_b_run=f"b{i}",
+            shown_first_run=f"a{i}",
+            winner_run=f"a{i}",
+            rated_at="t",
+        )
         for i in range(20)
     ]
     judgments = [_judgment(f"a{i}", f"b{i}", s, f"a{i}") for i in range(20) for s in (f"a{i}", f"b{i}")]

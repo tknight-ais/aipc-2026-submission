@@ -1,8 +1,8 @@
 from collections import Counter
 
+from aipc.blind import normalise
 from aipc.config import load_config
 from aipc.context import Context
-from aipc.blind import normalise
 from aipc.stages import tournament
 from aipc.store import ExperimentEssay, Store
 
@@ -12,7 +12,9 @@ WIN_A = "WINNER: A\nREASONING:\nFine."
 def _essays(theses=("t1", "t2"), conditions=("A", "B", "C", "D"), per=3):
     return [
         ExperimentEssay(thesis_id=t, condition=c, essay_index=i, run_id=f"{t}-{c}-{i}", essay_path="x")
-        for t in theses for c in conditions for i in range(per)
+        for t in theses
+        for c in conditions
+        for i in range(per)
     ]
 
 

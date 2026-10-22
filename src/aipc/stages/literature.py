@@ -14,6 +14,7 @@ import httpx
 
 from aipc.context import Context
 from aipc.models import LiteraturePack
+from aipc.replies import list_items
 
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 SEARCH_QUERIES = 3
@@ -43,7 +44,7 @@ def search_queries(topic: str, ctx: Context) -> list[str]:
     queries by hand would add a human input beyond the topic.
     """
     reply = ctx.ask("literature_queries", topic=topic, n=SEARCH_QUERIES).text
-    return [line.strip() for line in reply.splitlines() if line.strip()][:SEARCH_QUERIES]
+    return list_items(reply)[:SEARCH_QUERIES]
 
 
 def search_all(queries: list[str]) -> list[dict]:

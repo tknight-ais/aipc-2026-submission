@@ -13,6 +13,6 @@ argumentative structure for this thesis.
 
 Respond in exactly this format:
 
-CHOICE: <the candidate number, as given below>
+CHOICE: <the candidate's number, as numbered above>
 REASONING:
 <two to three sentences>

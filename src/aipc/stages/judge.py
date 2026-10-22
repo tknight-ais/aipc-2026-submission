@@ -1,4 +1,8 @@
-"""Judge panel: persona judges score essays independently - never
+"""Persona judge panel of the original pipeline (`generate`, `evaluate`,
+`calibrate`). The component ladder does not use it; it uses one neutral
+judge (neutral_judge.py), chosen by judge-select.
+
+Persona judges score essays independently - never
 conferring - using absolute rubric scores for selection and pairwise
 comparison against a frozen per-topic reference for cross-variant
 comparison, kept separate because selection and measurement are
@@ -12,15 +16,13 @@ swapped per topic and passed in by the caller, not hardcoded here.
 model_tier is "standard" because cheap-tier judges failed the
 graded-damage calibration test (calibrate.py), missing the subtle damage
 that standard-tier judges caught.
-
-The component ladder does not use this panel; it uses neutral_judge.py.
 """
 
 import re
 
 from aipc.context import Context
 from aipc.models import Essay, Persona, Scorecard
-from aipc.replies import parse_blocks, parse_pairwise
+from aipc.replies import parse_entries, parse_pairwise
 
 CRITERIA = ["argument_quality", "rigor", "originality", "clarity"]
 SCORE_KEYS = {"CRITERION", "SCORE", "REASONING"}
@@ -72,26 +74,32 @@ def score_absolute(essay: Essay, essay_id: str, persona: Persona, panel_type: st
     """One Scorecard per rubric block with a readable score; a block whose
     score can't be read is dropped rather than scored 0.
     """
-    result = ctx.ask("judge_absolute", tier=persona.model_tier, persona_description=persona.description, essay_text=essay.text)
-    blocks = [b for b in parse_blocks(result.text, SCORE_KEYS) if _score(b) is not None]
+    result = ctx.ask(
+        "judge_absolute", tier=persona.model_tier, persona_description=persona.description, essay_text=essay.text
+    )
+    scored = [(block, _score(block)) for block in parse_entries(result.text, SCORE_KEYS, start="CRITERION")]
     return [
         Scorecard(
             essay_id=essay_id,
             persona=persona.name,
             panel_type=panel_type,
             criterion=block.get("CRITERION", "unknown"),
-            score=_score(block),
+            score=score,
             reasoning=block.get("REASONING", ""),
         )
-        for block in blocks
+        for block, score in scored
+        if score is not None
     ]
 
 
 def compare_pairwise(essay_a: Essay, essay_b: Essay, persona: Persona, ctx: Context) -> tuple[str | None, str]:
     """Returns (winner, reasoning); winner is "A", "B", or None when unreadable."""
     result = ctx.ask(
-        "judge_pairwise", tier=persona.model_tier, persona_description=persona.description,
-        essay_a_text=essay_a.text, essay_b_text=essay_b.text,
+        "judge_pairwise",
+        tier=persona.model_tier,
+        persona_description=persona.description,
+        essay_a_text=essay_a.text,
+        essay_b_text=essay_b.text,
     )
     return parse_pairwise(result.text)
 

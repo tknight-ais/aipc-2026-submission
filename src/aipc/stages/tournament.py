@@ -34,10 +34,7 @@ def schedule_pairs(essays: list[ExperimentEssay], per_essay: int, seed: int) -> 
     """Seeded, greedy: shuffle every eligible pair, keep one while both
     essays still have fewer than `per_essay` opponents.
     """
-    eligible = [
-        (a, b) for a, b in combinations(essays, 2)
-        if a.thesis_id == b.thesis_id and a.condition != b.condition
-    ]
+    eligible = [(a, b) for a, b in combinations(essays, 2) if a.thesis_id == b.thesis_id and a.condition != b.condition]
     random.Random(seed).shuffle(eligible)
     degree = {e.run_id: 0 for e in essays}
     pairs = []
@@ -49,12 +46,14 @@ def schedule_pairs(essays: list[ExperimentEssay], per_essay: int, seed: int) -> 
     return pairs
 
 
-def judge_ordering(pair: Pair, shown_first_run: str, texts: dict[str, str], judge_tier: str, seed: int, ctx: Context) -> tuple[str | None, str]:
+def judge_ordering(
+    pair: Pair, shown_first_run: str, texts: dict[str, str], judge_tier: str, seed: int, ctx: Context
+) -> tuple[str | None, str]:
     """Judges one ordering of a pair. Returns (winner run id or None, reasoning)."""
     first = shown_first_run
     second = pair.essay_b_run if first == pair.essay_a_run else pair.essay_a_run
     winner, reasoning = neutral_judge.compare(texts[first], texts[second], judge_tier, seed, ctx)
-    winner_run = {"A": first, "B": second}.get(winner)
+    winner_run = {"A": first, "B": second}[winner] if winner else None
     return winner_run, reasoning
 
 
@@ -78,9 +77,15 @@ def run(experiment: str, schedule: Schedule, texts: dict[str, str], judge_tier: 
                 continue
             winner_run, reasoning = judge_ordering(pair, shown_first, texts, judge_tier, ctx.config.defaults.seed, ctx)
             judgment = Judgment(
-                experiment=experiment, tournament_run_id=ctx.run_id, thesis_id=pair.thesis_id,
-                essay_a_run=pair.essay_a_run, essay_b_run=pair.essay_b_run, judge_model=judge_model,
-                shown_first_run=shown_first, winner_run=winner_run, reasoning=reasoning,
+                experiment=experiment,
+                tournament_run_id=ctx.run_id,
+                thesis_id=pair.thesis_id,
+                essay_a_run=pair.essay_a_run,
+                essay_b_run=pair.essay_b_run,
+                judge_model=judge_model,
+                shown_first_run=shown_first,
+                winner_run=winner_run,
+                reasoning=reasoning,
                 judge_prompt_hash=prompt_hash,
             )
             if not ctx.config.dry_run:

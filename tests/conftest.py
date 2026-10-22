@@ -18,14 +18,22 @@ class FakeLLM:
     prompt_name; never makes a network call.
     """
 
-    def __init__(self, responses: dict[str, str] | None = None):
+    def __init__(self, responses: dict[str, str | list[str]] | None = None):
         self.responses = responses or {}
         self.calls = []
         self.total_cost_usd = 0.0
 
-    def call(self, tier, prompt, system=None, temperature=None, seed=None, prompt_name=None):
+    def call(
+        self,
+        tier: str,
+        prompt: str,
+        system: str | None = None,
+        temperature: float | None = None,
+        seed: int | None = None,
+        prompt_name: str | None = None,
+    ) -> CallResult:
         self.calls.append({"tier": tier, "prompt": prompt, "prompt_name": prompt_name, "seed": seed})
-        value = self.responses.get(prompt_name, "stubbed response")
+        value = self.responses.get(prompt_name or "", "stubbed response")
         if isinstance(value, list):
             # Cycles through canned responses in call order for this
             # prompt_name - lets a test give round 1 and round 2 of a

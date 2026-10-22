@@ -1,18 +1,28 @@
+from conftest import FakeLLM
+
 from aipc.config import load_config
 from aipc.context import Context
+from aipc.llm import CallResult
 from aipc.stages import select as select_stage
 from aipc.store import Store
-from conftest import FakeLLM
 
 
 class ContentJudge(FakeLLM):
     """Prefers the essay with more occurrences of 'strong'; ties go to A."""
 
-    def call(self, tier, prompt, system=None, temperature=None, seed=None, prompt_name=None):
+    def call(
+        self,
+        tier: str,
+        prompt: str,
+        system: str | None = None,
+        temperature: float | None = None,
+        seed: int | None = None,
+        prompt_name: str | None = None,
+    ) -> CallResult:
         essay_a = prompt.split("Essay A:\n")[1].split("\n\nEssay B:\n")[0]
         essay_b = prompt.split("\n\nEssay B:\n")[1].split("\n\nBefore deciding")[0]
         winner = "B" if essay_b.count("strong") > essay_a.count("strong") else "A"
-        self.responses[prompt_name] = f"REASONING:\nChecked.\nWINNER: {winner}"
+        self.responses[prompt_name or ""] = f"REASONING:\nChecked.\nWINNER: {winner}"
         return super().call(tier, prompt, system, temperature, seed, prompt_name)
 
 
@@ -43,6 +53,8 @@ def test_position_biased_judge_gives_only_ties(fake_llm, tmp_path):
 
 def test_formatting_is_stripped_before_judging(tmp_path):
     llm = ContentJudge()
-    select_stage.run({"x": "# Title\n\nA strong essay.", "y": "Plain."}, "judge_gemini", repeats=1, ctx=_ctx(llm, tmp_path))
+    select_stage.run(
+        {"x": "# Title\n\nA strong essay.", "y": "Plain."}, "judge_gemini", repeats=1, ctx=_ctx(llm, tmp_path)
+    )
 
     assert all("# Title" not in c["prompt"] for c in llm.calls)

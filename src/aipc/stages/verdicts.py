@@ -24,10 +24,18 @@ def _title(essay: Essay) -> str:
     return essay.text.strip().splitlines()[0].strip("# *")[:120]
 
 
+def _agreed_winner(js: list[Judgment]) -> str | None:
+    """The winner if both orderings were judged and picked the same essay,
+    as in analysis.pair_outcomes; otherwise None.
+    """
+    winners = [j.winner_run for j in js]
+    return winners[0] if len(winners) == 2 and winners[0] is not None and winners[0] == winners[1] else None
+
+
 def _summary(judgments: list[Judgment], by_pair: dict) -> list[str]:
     decided = [j for j in judgments if j.winner_run is not None]
     first_picked = sum(j.winner_run == j.shown_first_run for j in decided)
-    consistent = sum(len({j.winner_run for j in js}) == 1 and js[0].winner_run is not None for js in by_pair.values())
+    consistent = sum(_agreed_winner(js) is not None for js in by_pair.values())
     return [
         "## Summary",
         "",
@@ -38,10 +46,12 @@ def _summary(judgments: list[Judgment], by_pair: dict) -> list[str]:
     ]
 
 
-def _pair_section(index: int, js: list[Judgment], essays: dict[str, ExperimentEssay], texts: dict[str, Essay]) -> list[str]:
+def _pair_section(
+    index: int, js: list[Judgment], essays: dict[str, ExperimentEssay], texts: dict[str, Essay]
+) -> list[str]:
     a, b = js[0].essay_a_run, js[0].essay_b_run
-    winners = {j.winner_run for j in js}
-    outcome = essays[next(iter(winners))].condition if len(winners) == 1 and None not in winners else "tie (orderings disagree)"
+    winner = _agreed_winner(js)
+    outcome = essays[winner].condition if winner is not None else "tie (orderings disagree)"
     lines = [f"## {index}. {essays[a].condition} vs {essays[b].condition} ({js[0].thesis_id}): {outcome}", ""]
     for run in (a, b):
         lines.append(f"- **{essays[run].name}**: {_title(texts[run])} ({texts[run].word_count} words)")

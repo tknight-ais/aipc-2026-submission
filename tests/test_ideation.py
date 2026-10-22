@@ -86,3 +86,11 @@ def test_run_pools_cold_and_informed_batches(fake_llm, tmp_path):
 
     assert len(results) == 4
     assert {r.candidate.origin for r in results} == {"cold", "informed"}
+
+
+def test_generate_reads_a_thesis_whose_keys_are_bold(fake_llm, tmp_path):
+    fake_llm.responses["ideation_cold"] = (
+        "**THESIS:**\nMoral facts are mind-independent.\n\n**RATIONALE:** It resists one."
+    )
+    [candidate] = ideation_stage.generate_cold("metaethics", 1, _ctx(fake_llm, tmp_path, n=1))
+    assert (candidate.claim, candidate.rationale) == ("Moral facts are mind-independent.", "It resists one.")

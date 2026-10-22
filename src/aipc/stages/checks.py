@@ -146,13 +146,14 @@ def in_text_citations(body: str) -> set[tuple[str, str]]:
 def unmatched_citations(body: str, entries: list[str]) -> list[str]:
     """In-text (surname, year) pairs with no bibliography entry naming both."""
     return sorted(
-        f"{surname} {year}" for surname, year in in_text_citations(body)
+        f"{surname} {year}"
+        for surname, year in in_text_citations(body)
         if not any(surname in e and year in e for e in entries)
     )
 
 
 def process_mentions(body: str) -> list[str]:
-    return [body[max(0, m.start() - 60):m.end() + 60].replace("\n", " ") for m in PROCESS_TERMS.finditer(body)]
+    return [body[max(0, m.start() - 60) : m.end() + 60].replace("\n", " ") for m in PROCESS_TERMS.finditer(body)]
 
 
 def run(text: str) -> CheckReport:

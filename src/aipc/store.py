@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS judgments (
     judge_model TEXT NOT NULL,
     shown_first_run TEXT NOT NULL,
     winner_run TEXT,
-    reasoning TEXT NOT NULL
+    reasoning TEXT NOT NULL,
+    judge_prompt_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS human_judgments (
@@ -134,7 +135,11 @@ CREATE TABLE IF NOT EXISTS calls (
     latency_s REAL NOT NULL,
     called_at TEXT NOT NULL,
     prompt TEXT NOT NULL,
-    response TEXT NOT NULL
+    response TEXT NOT NULL,
+    sampling_sent TEXT,
+    reasoning_tokens INTEGER,
+    finish_reason TEXT,
+    attempts INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS measurements (
@@ -195,7 +200,8 @@ class HumanJudgment(BaseModel):
     rated_at: str
 
 
-# Columns added after runs.db files already existed; added on open.
+# Columns added after runs.db files already existed. SCHEMA has them for a
+# new database; an older one gets them when it is opened.
 ADDED_COLUMNS = {
     "runs": {"git_commit": "TEXT", "git_dirty": "INTEGER"},
     "calls": {"sampling_sent": "TEXT", "reasoning_tokens": "INTEGER", "finish_reason": "TEXT", "attempts": "INTEGER"},
@@ -241,8 +247,14 @@ class Store:
         )
 
     def start_run(
-        self, run_id: str, label: str, config_hash: str, variant: str, started_at: str,
-        git_commit: str | None = None, git_dirty: bool | None = None,
+        self,
+        run_id: str,
+        label: str,
+        config_hash: str,
+        variant: str,
+        started_at: str,
+        git_commit: str | None = None,
+        git_dirty: bool | None = None,
     ) -> None:
         self._write(
             "INSERT INTO runs (run_id, label, config_hash, variant, started_at, status, git_commit, git_dirty) "
@@ -261,8 +273,15 @@ class Store:
         self._write(
             "INSERT INTO scores (run_id, essay_id, persona, panel_type, criterion, score, reasoning) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (run_id, scorecard.essay_id, scorecard.persona, scorecard.panel_type,
-             scorecard.criterion, scorecard.score, scorecard.reasoning),
+            (
+                run_id,
+                scorecard.essay_id,
+                scorecard.persona,
+                scorecard.panel_type,
+                scorecard.criterion,
+                scorecard.score,
+                scorecard.reasoning,
+            ),
         )
 
     def save_comparison(self, essay_a: str, essay_b: str, judge: str, winner: str, order_label: str) -> None:
@@ -280,9 +299,7 @@ class Store:
     def save_call(self, run_id: str, call: CallRecord) -> None:
         self._insert("calls", call, run_id=run_id)
 
-    def save_artifact(
-        self, run_id: str, stage: str, artifact: BaseModel, markdown_text: str | None = None
-    ) -> Path:
+    def save_artifact(self, run_id: str, stage: str, artifact: BaseModel, markdown_text: str | None = None) -> Path:
         run_dir = self._run_dirs[run_id]
         run_dir.mkdir(parents=True, exist_ok=True)
         path = run_dir / f"{stage}.json"

@@ -94,3 +94,11 @@ def test_dry_run_plans_for_the_most_sub_questions(fake_llm, tmp_path):
     ctx.config.dry_run = True
     _, chosen = decomposition_stage.run(THESIS, 2, ctx)
     assert len(chosen.sub_questions) == decomposition_stage.MAX_SUB_QUESTIONS
+
+
+def test_generate_candidates_drops_numbering_and_a_preamble(fake_llm, tmp_path):
+    fake_llm.responses["decompose"] = (
+        "Here is one decomposition:\n\n1. Is genealogy relevant?\n2. Does the analogy hold?"
+    )
+    [candidate] = decomposition_stage.generate_candidates(THESIS, 1, _ctx(fake_llm, tmp_path))
+    assert candidate.sub_questions == ["Is genealogy relevant?", "Does the analogy hold?"]

@@ -8,31 +8,48 @@ concentrate in the first pass. The loop stops when
 a round's critics raise nothing new, or after a hard cap of rounds.
 """
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from aipc.context import Context
-from aipc.models import ContentLedger, Critique, Essay, FidelityReview, RevisionRound, count_words
+from aipc.models import ContentLedger, Critique, Essay, FidelityReview, RevisionRound, split_bibliography
 from aipc.replies import is_none
 
 # A deliberately simple lexical heuristic for boldness erosion, not a
 # claim of semantic precision - cheap to log per round, which is the
 # point.
 HEDGE_WORDS = [
-    "perhaps", "arguably", "possibly", "somewhat", "to some extent",
-    "it could be argued", "it might be", "it may be", "one might think",
-    "it seems", "seemingly", "presumably", "plausibly", "may well",
-    "might well", "could be seen as", "in some sense",
+    "perhaps",
+    "arguably",
+    "possibly",
+    "somewhat",
+    "to some extent",
+    "it could be argued",
+    "it might be",
+    "it may be",
+    "one might think",
+    "it seems",
+    "seemingly",
+    "presumably",
+    "plausibly",
+    "may well",
+    "might well",
+    "could be seen as",
+    "in some sense",
 ]
+# Whole words only: "possibly" must not match inside "impossibly".
+HEDGE_PATTERN = re.compile(r"\b(?:" + "|".join(re.escape(phrase) for phrase in HEDGE_WORDS) + r")\b")
 
 
 def hedge_density(text: str) -> float:
-    """Hedge-word occurrences per 1,000 words."""
-    words = count_words(text)
+    """Hedge-phrase occurrences per 1,000 words of the body (the reference
+    list is excluded from both counts).
+    """
+    body = split_bibliography(text)[0]
+    words = len(body.split())
     if words == 0:
         return 0.0
-    lowered = text.lower()
-    hedge_count = sum(lowered.count(phrase) for phrase in HEDGE_WORDS)
-    return hedge_count / words * 1000
+    return len(HEDGE_PATTERN.findall(body.lower())) / words * 1000
 
 
 def essay_requirements(ctx: Context) -> str:
@@ -56,11 +73,14 @@ def run_critics(essay: Essay, thesis: str, previously_raised: list[str], ctx: Co
     others' output this round - only to objections already published
     from earlier rounds. Each critic gets its own seed.
 
-    The prompt is rendered once, on the calling thread: SQLite connections
-    aren't shareable across threads, and every critic sees the same text.
+    The prompt is rendered once, on the calling thread, because every
+    critic sees the same text; each critic's call is recorded from its own
+    thread, through the store's write lock.
     """
     prompt = ctx.render(
-        "critic", thesis=thesis, essay_text=essay.text,
+        "critic",
+        thesis=thesis,
+        essay_text=essay.text,
         previously_raised="\n\n".join(previously_raised) or "(none yet)",
     )
 
@@ -73,7 +93,9 @@ def run_critics(essay: Essay, thesis: str, previously_raised: list[str], ctx: Co
         return list(pool.map(critique, range(ctx.config.pipeline.critics)))
 
 
-def critique_round(essay: Essay, thesis: str, previously_raised: list[str], round_num: int, ctx: Context) -> tuple[RevisionRound, list[str]]:
+def critique_round(
+    essay: Essay, thesis: str, previously_raised: list[str], round_num: int, ctx: Context
+) -> tuple[RevisionRound, list[str]]:
     """One round of critics. Returns the round's record and its new
     objections (empty when every critic replied NONE).
     """
@@ -91,8 +113,11 @@ def critique_round(essay: Essay, thesis: str, previously_raised: list[str], roun
 
 def revise(essay: Essay, ledger: ContentLedger, objections: list[str], ctx: Context) -> Essay:
     result = ctx.ask(
-        "revise", ledger_json=ledger.model_dump_json(indent=2), essay_text=essay.text,
-        objections_text="\n\n".join(objections), requirements=essay_requirements(ctx),
+        "revise",
+        ledger_json=ledger.model_dump_json(indent=2),
+        essay_text=essay.text,
+        objections_text="\n\n".join(objections),
+        requirements=essay_requirements(ctx),
     )
     return Essay.from_text(result.text, thesis=ledger.thesis)
 
@@ -100,8 +125,10 @@ def revise(essay: Essay, ledger: ContentLedger, objections: list[str], ctx: Cont
 def revise_free(essay: Essay, objections: list[str], ctx: Context) -> Essay:
     """revise() without a ledger, for essays that were never built from one."""
     result = ctx.ask(
-        "revise_free", essay_text=essay.text,
-        objections_text="\n\n".join(objections), requirements=essay_requirements(ctx),
+        "revise_free",
+        essay_text=essay.text,
+        objections_text="\n\n".join(objections),
+        requirements=essay_requirements(ctx),
     )
     return Essay.from_text(result.text, thesis=essay.thesis)
 

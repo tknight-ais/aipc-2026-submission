@@ -89,8 +89,9 @@ class ContentLedger(BaseModel):
     engagements: list[str] = []
 
 
+# "References", "## Bibliography", "**Works Cited:**", "Reference List" ...
 BIBLIOGRAPHY_HEADING = re.compile(
-    r"^\s*(?:#+\s*)?(?:\*\*)?(?:references|bibliography|works cited)(?:\*\*)?:?\s*$",
+    r"^\s*(?:#+\s*)?(?:\*\*)?(?:references|reference list|bibliography|works cited):?(?:\*\*)?:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -100,7 +101,7 @@ def split_bibliography(text: str) -> tuple[str, str]:
     headings = list(BIBLIOGRAPHY_HEADING.finditer(text))
     if not headings:
         return text, ""
-    return text[:headings[-1].start()], text[headings[-1].end():]
+    return text[: headings[-1].start()], text[headings[-1].end() :]
 
 
 def count_words(text: str) -> int:
