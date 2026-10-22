@@ -14,7 +14,7 @@ import re
 
 from aipc.context import Context
 from aipc.models import Decomposition, DecompositionSelection, FilterVerdict, ScreenedDecomposition
-from aipc.replies import parse_verdict
+from aipc.replies import list_items, parse_verdict
 
 CHOICE_PATTERN = re.compile(r"CHOICE\W*(\d+)", re.IGNORECASE)
 # decompose.md asks for 3-5 sub-questions; a dry run plans for the most,
@@ -22,19 +22,17 @@ CHOICE_PATTERN = re.compile(r"CHOICE\W*(\d+)", re.IGNORECASE)
 MAX_SUB_QUESTIONS = 5
 
 
-def _parse_sub_questions(text: str) -> list[str]:
-    return [line.lstrip("- ").strip() for line in text.strip().splitlines() if line.strip()]
-
-
 def _sub_questions(reply: str, dry_run: bool) -> list[str]:
     if dry_run:
         return [f"[dry-run sub-question {i + 1}]" for i in range(MAX_SUB_QUESTIONS)]
-    return _parse_sub_questions(reply)
+    return list_items(reply)
 
 
 def generate_candidates(thesis: str, n: int, ctx: Context) -> list[Decomposition]:
     return [
-        Decomposition(thesis=thesis, sub_questions=_sub_questions(ctx.ask("decompose", thesis=thesis).text, ctx.config.dry_run))
+        Decomposition(
+            thesis=thesis, sub_questions=_sub_questions(ctx.ask("decompose", thesis=thesis).text, ctx.config.dry_run)
+        )
         for _ in range(n)
     ]
 

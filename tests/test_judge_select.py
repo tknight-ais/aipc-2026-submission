@@ -1,8 +1,8 @@
 from aipc.config import load_config
 from aipc.context import Context
 from aipc.models import Essay
-from aipc.stages import judge_select
 from aipc.replies import parse_winner
+from aipc.stages import judge_select
 from aipc.store import Store
 
 WIN_A = "WINNER: A\nREASONING:\nFine."
@@ -69,8 +69,14 @@ def test_repeats_use_distinct_seeds(fake_llm, tmp_path):
 def test_rank_prefers_correct_then_consistent_then_cheap():
     def make(tier, correct, consistent, cost):
         return judge_select.JudgeSelectionResult(
-            judge_tier=tier, model=tier, trials=9, correct=correct,
-            position_consistent=consistent, unparsed=0, cost_usd=cost, verdicts=[],
+            judge_tier=tier,
+            model=tier,
+            trials=9,
+            correct=correct,
+            position_consistent=consistent,
+            unparsed=0,
+            cost_usd=cost,
+            verdicts=[],
         )
 
     ranked = judge_select.rank([make("a", 5, 9, 0.01), make("b", 7, 7, 0.20), make("c", 7, 7, 0.05)])
@@ -84,7 +90,10 @@ def test_parse_winner_reads_last_line_of_reasoning_first_reply():
 def test_configured_prompt_is_used(fake_llm, tmp_path):
     ctx = _ctx(fake_llm, tmp_path)
     ctx.config.judge_prompt = "judge_pairwise_reasoned"
-    fake_llm.responses["judge_pairwise_reasoned"] = ["REASONING:\nChecked.\nWINNER: A", "REASONING:\nChecked.\nWINNER: B"] * 3
+    fake_llm.responses["judge_pairwise_reasoned"] = [
+        "REASONING:\nChecked.\nWINNER: A",
+        "REASONING:\nChecked.\nWINNER: B",
+    ] * 3
     result = judge_select.run_judge(_levels(), "judge_qwen", repeats=1, ctx=ctx)
 
     assert result.correct == 3

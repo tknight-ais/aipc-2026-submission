@@ -10,6 +10,7 @@ Ranking: most correct trials, then most position-consistent trials, then
 lowest cost. Fixed here, before any live run, so the pick is automatic.
 """
 
+from itertools import pairwise
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -42,20 +43,25 @@ class JudgeSelectionResult(BaseModel):
 
 
 def load_levels(run_dir: Path) -> list[tuple[str, Essay]]:
-    return [
-        (name, Essay.model_validate_json((run_dir / f"level_{name}.json").read_text()))
-        for name in LEVEL_ORDER
-    ]
+    return [(name, Essay.model_validate_json((run_dir / f"level_{name}.json").read_text())) for name in LEVEL_ORDER]
 
 
-def _judge_trial(pair: str, better: Essay, worse: Essay, judge_tier: str, repeat: int, seed: int, ctx: Context) -> list[Verdict]:
+def _judge_trial(
+    pair: str, better: Essay, worse: Essay, judge_tier: str, repeat: int, seed: int, ctx: Context
+) -> list[Verdict]:
     verdicts = []
     for better_position, (essay_a, essay_b) in [("A", (better, worse)), ("B", (worse, better))]:
         winner, reasoning = neutral_judge.compare(essay_a.text, essay_b.text, judge_tier, seed, ctx)
-        verdicts.append(Verdict(
-            pair=pair, repeat=repeat, seed=seed,
-            better_position=better_position, winner=winner, reasoning=reasoning,
-        ))
+        verdicts.append(
+            Verdict(
+                pair=pair,
+                repeat=repeat,
+                seed=seed,
+                better_position=better_position,
+                winner=winner,
+                reasoning=reasoning,
+            )
+        )
     return verdicts
 
 
@@ -79,7 +85,7 @@ def summarise(judge_tier: str, model: str, verdicts: list[Verdict], cost_usd: fl
 def run_judge(levels: list[tuple[str, Essay]], judge_tier: str, repeats: int, ctx: Context) -> JudgeSelectionResult:
     cost_before = ctx.llm.total_cost_usd
     verdicts = []
-    for (better_name, better), (worse_name, worse) in zip(levels, levels[1:]):
+    for (better_name, better), (worse_name, worse) in pairwise(levels):
         for repeat in range(repeats):
             seed = ctx.config.defaults.seed + repeat
             verdicts += _judge_trial(f"{better_name}_vs_{worse_name}", better, worse, judge_tier, repeat, seed, ctx)

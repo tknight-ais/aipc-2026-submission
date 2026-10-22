@@ -42,9 +42,7 @@ def get_run(runs_dir: Path, label: str) -> dict | None:
 
 def get_config(runs_dir: Path, config_hash: str) -> dict:
     with closing(_connect(runs_dir)) as conn:
-        row = conn.execute(
-            "SELECT config_json FROM configs WHERE config_hash = ?", (config_hash,)
-        ).fetchone()
+        row = conn.execute("SELECT config_json FROM configs WHERE config_hash = ?", (config_hash,)).fetchone()
     return json.loads(row["config_json"])
 
 

@@ -1,11 +1,14 @@
-"""Judge calibration test: gates all comparison work.
+"""Graded-damage judge calibration, from the original pipeline.
 
-Before the judge panel is trusted to compare variants, this constructs a
-known ordering - an essay, deliberately and cumulatively damaged at
+It constructs a known ordering - an essay, deliberately and cumulatively damaged at
 graded levels - and checks whether the panel's absolute scores and
 pairwise comparisons reproduce it. If the panel can't detect *constructed*
 damage, it can't be trusted to detect the real quality differences this
 project exists to measure.
+
+The original pipeline used it to test its persona panel. The component
+ladder keeps the graded essays it wrote: `aipc judge-select` chooses the
+ladder's judge on them.
 
 The undamaged anchor is one of this project's own generated essays, not
 a published paper. A published paper is the more realistic anchor, but a
@@ -14,6 +17,8 @@ seen this exact essay before), and is available
 without a literature-retrieval dependency. Worth revisiting with a real
 published paper once one is on hand.
 """
+
+from itertools import pairwise
 
 from pydantic import BaseModel
 
@@ -32,25 +37,31 @@ GENERATION_TIER = "standard"
 DAMAGE_LEVELS = [
     (
         "light",
-        "Weaken exactly one objection's reply so it no longer actually "
-        "answers the objection it responds to - make the reply sound "
-        "confident but subtly miss the point. Leave every other claim, "
-        "objection and reply as strong as in the original.",
+        (
+            "Weaken exactly one objection's reply so it no longer actually "
+            "answers the objection it responds to - make the reply sound "
+            "confident but subtly miss the point. Leave every other claim, "
+            "objection and reply as strong as in the original."
+        ),
     ),
     (
         "heavy",
-        "Remove the support for the essay's central claim (state the "
-        "claim but drop or hollow out the reasoning behind it), and "
-        "introduce one clear logical fallacy in a key inference (for "
-        "example affirming the consequent, or a false dichotomy) "
-        "elsewhere in the argument.",
+        (
+            "Remove the support for the essay's central claim (state the "
+            "claim but drop or hollow out the reasoning behind it), and "
+            "introduce one clear logical fallacy in a key inference (for "
+            "example affirming the consequent, or a false dichotomy) "
+            "elsewhere in the argument."
+        ),
     ),
     (
         "severe",
-        "Strip out nearly all objections and replies - keep only the "
-        "bare thesis statement and generic, surface-level support for "
-        "it, the way a rushed one-shot essay with no real "
-        "argumentation would read.",
+        (
+            "Strip out nearly all objections and replies - keep only the "
+            "bare thesis statement and generic, surface-level support for "
+            "it, the way a rushed one-shot essay with no real "
+            "argumentation would read."
+        ),
     ),
 ]
 
@@ -63,7 +74,9 @@ class CalibrationResult(BaseModel):
 
 
 def degrade(essay: Essay, damage_instruction: str, ctx: Context) -> Essay:
-    result = ctx.ask("degrade_essay", tier=GENERATION_TIER, essay_text=essay.text, damage_instruction=damage_instruction)
+    result = ctx.ask(
+        "degrade_essay", tier=GENERATION_TIER, essay_text=essay.text, damage_instruction=damage_instruction
+    )
     return Essay.from_text(result.text, thesis=essay.thesis)
 
 
@@ -81,26 +94,29 @@ def score_levels(levels: list[tuple[str, Essay]], ctx: Context) -> list[Calibrat
     for persona in judge_stage.MIRROR_PANEL:
         absolute_scores = {}
         for name, essay in levels:
-            scores = judge_stage.score_absolute(essay, essay_id=name, persona=persona, panel_type="calibration", ctx=ctx)
+            scores = judge_stage.score_absolute(
+                essay, essay_id=name, persona=persona, panel_type="calibration", ctx=ctx
+            )
             absolute_scores[name] = sum(s.score for s in scores) / len(scores) if scores else 0.0
 
         pairwise_results = {}
-        for (name_a, essay_a), (name_b, essay_b) in zip(levels, levels[1:]):
+        for (name_a, essay_a), (name_b, essay_b) in pairwise(levels):
             comparison = judge_stage.compare_both_orderings(essay_a, essay_b, persona, ctx)
             pairwise_results[f"{name_a}_vs_{name_b}"] = comparison["candidate_wins"]
 
         level_names = [name for name, _ in levels]
         monotonic = all(
-            absolute_scores[level_names[i]] >= absolute_scores[level_names[i + 1]]
-            for i in range(len(level_names) - 1)
+            absolute_scores[level_names[i]] >= absolute_scores[level_names[i + 1]] for i in range(len(level_names) - 1)
         )
 
-        results.append(CalibrationResult(
-            persona=persona.name,
-            absolute_scores=absolute_scores,
-            pairwise_results=pairwise_results,
-            monotonic=monotonic,
-        ))
+        results.append(
+            CalibrationResult(
+                persona=persona.name,
+                absolute_scores=absolute_scores,
+                pairwise_results=pairwise_results,
+                monotonic=monotonic,
+            )
+        )
     return results
 
 

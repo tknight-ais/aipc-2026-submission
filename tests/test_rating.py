@@ -12,8 +12,15 @@ from aipc.viewer.server import make_server
 
 def _judgment(a, b, shown_first, winner):
     return Judgment(
-        experiment="poc", tournament_run_id="tour", thesis_id="t1", essay_a_run=a, essay_b_run=b,
-        judge_model="m", shown_first_run=shown_first, winner_run=winner, reasoning="",
+        experiment="poc",
+        tournament_run_id="tour",
+        thesis_id="t1",
+        essay_a_run=a,
+        essay_b_run=b,
+        judge_model="m",
+        shown_first_run=shown_first,
+        winner_run=winner,
+        reasoning="",
     )
 
 
@@ -64,7 +71,9 @@ def test_rating_serves_the_frozen_set_even_when_judgments_change(tmp_path):
 
 def test_record_maps_choice_to_run_and_ignores_stale_or_bad_posts(tmp_path):
     store = _judged_store(tmp_path, 3)
-    index, anchor = rating.next_unrated(store, "poc")
+    pending = rating.next_unrated(store, "poc")
+    assert pending is not None
+    index, anchor = pending
 
     rating.record(store, "poc", index + 1, "first")
     rating.record(store, "poc", index, "both")
@@ -74,13 +83,14 @@ def test_record_maps_choice_to_run_and_ignores_stale_or_bad_posts(tmp_path):
     [saved] = store.human_judgments("poc")
     assert saved.winner_run == anchor.shown_second_run
     assert saved.shown_first_run == anchor.shown_first_run
-    assert rating.next_unrated(store, "poc")[0] == index + 1
+    following = rating.next_unrated(store, "poc")
+    assert following is not None and following[0] == index + 1
 
 
 @pytest.fixture
 def served(tmp_path):
     _judged_store(tmp_path, 2).conn.close()
-    server = make_server(tmp_path, port=0)
+    server = make_server(tmp_path, port=0, experiment="poc")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_address[1]}", tmp_path
     server.shutdown()
@@ -108,11 +118,24 @@ def test_rate_page_is_blind_and_records_through_to_done(served):
 
 def test_rate_page_before_any_tournament(tmp_path):
     Store(runs_dir=tmp_path).conn.close()
-    server = make_server(tmp_path, port=0)
+    server = make_server(tmp_path, port=0, experiment="poc")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         html = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/rate").read().decode()
         assert "Run the tournament first" in html
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_rate_page_without_an_experiment_serves_nothing_to_rate(tmp_path):
+    _judged_store(tmp_path, 2).conn.close()
+    server = make_server(tmp_path, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        html = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/rate").read().decode()
+        assert "No experiment chosen" in html
+        assert "Essay body" not in html
     finally:
         server.shutdown()
         server.server_close()

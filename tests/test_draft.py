@@ -1,3 +1,5 @@
+import pytest
+
 from aipc.config import load_config
 from aipc.context import Context
 from aipc.stages import draft as draft_stage
@@ -59,9 +61,7 @@ def test_revise_addresses_objections(sample_ledger, fake_llm, tmp_path):
 
 
 def test_check_fidelity_parses_both_sections(sample_ledger, fake_llm, tmp_path):
-    fake_llm.responses["fidelity"] = (
-        "DROPPED OBJECTIONS:\nnone found\n\nUNSUPPORTED CLAIMS:\nnone found"
-    )
+    fake_llm.responses["fidelity"] = "DROPPED OBJECTIONS:\nnone found\n\nUNSUPPORTED CLAIMS:\nnone found"
     ctx = _ctx(fake_llm, tmp_path)
     essay = draft_stage.draft_essay(sample_ledger, ctx)
 
@@ -94,9 +94,15 @@ def test_run_hits_hard_cap_when_objections_keep_coming(sample_ledger, fake_llm, 
     fake_llm.responses["fidelity"] = "DROPPED OBJECTIONS:\nnone found\n\nUNSUPPORTED CLAIMS:\nnone found"
     ctx = _ctx(fake_llm, tmp_path, critics=1, max_revision_rounds=2)
 
-    essay, rounds, fidelity = draft_stage.run(sample_ledger, ctx)
+    essay, rounds, _ = draft_stage.run(sample_ledger, ctx)
 
     assert len(rounds) == 2
     assert all(r.has_new_objection for r in rounds)
     assert essay.rounds_used == 2
     assert essay.text == "Revised draft text."
+
+
+def test_hedge_density_counts_whole_phrases_in_the_body_only():
+    body = "Perhaps so. A process we cannot audit may be wrong, and it is impossibly hard."
+    text = f"{body}\n\nReferences\nPerhaps, A. 2001. Arguably True. Possibly Press."
+    assert draft_stage.hedge_density(text) == pytest.approx(1 / len(body.split()) * 1000)

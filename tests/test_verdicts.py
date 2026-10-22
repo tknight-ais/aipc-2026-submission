@@ -5,8 +5,15 @@ from aipc.store import ExperimentEssay, Judgment
 
 def _judgment(shown_first, winner, reasoning="Long reasoning. A is better."):
     return Judgment(
-        experiment="x", tournament_run_id="t", thesis_id="t1", essay_a_run="a", essay_b_run="b",
-        judge_model="judge/model", shown_first_run=shown_first, winner_run=winner, reasoning=reasoning,
+        experiment="x",
+        tournament_run_id="t",
+        thesis_id="t1",
+        essay_a_run="a",
+        essay_b_run="b",
+        judge_model="judge/model",
+        shown_first_run=shown_first,
+        winner_run=winner,
+        reasoning=reasoning,
     )
 
 

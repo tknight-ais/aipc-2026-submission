@@ -1,4 +1,9 @@
-"""Assembles the stages into one end-to-end run: topic area in, a scored
+"""The original pipeline (`aipc generate`), built before the component
+ladder and kept because the project's earliest results came from it: a
+pipeline essay judged against a fresh single-model baseline by the
+persona panel. The current experiment is stages/experiment.py.
+
+Assembles the stages into one end-to-end run: topic area in, a scored
 essay out. Every stage is also exercised on its own by a single-stage CLI
 command and its tests; this module is where they are chained.
 
@@ -94,7 +99,9 @@ def run(topic: str, ctx: Context) -> PipelineResult:
 
     comparisons: dict[str, dict] = {}
     for persona in judge_stage.MIRROR_PANEL:
-        for score in judge_stage.score_absolute(essay, essay_id="candidate", persona=persona, panel_type="mirror", ctx=ctx):
+        for score in judge_stage.score_absolute(
+            essay, essay_id="candidate", persona=persona, panel_type="mirror", ctx=ctx
+        ):
             ctx.store.save_score(ctx.run_id, score)
 
         comparison = judge_stage.compare_both_orderings(essay, reference_essay, persona, ctx)

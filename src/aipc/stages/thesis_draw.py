@@ -53,4 +53,4 @@ def draw(survivors: list[str], n: int, seed: int) -> ThesisDraw:
         if all(overlap(a, b) <= MAX_OVERLAP for a, b in itertools.combinations(theses, 2)):
             return ThesisDraw(theses=theses, seed=try_seed, rejected_seeds=rejected, survivors=len(survivors))
         rejected.append(try_seed)
-    raise ValueError(f"every draw from seed {seed} to {try_seed} had near-duplicate theses")
+    raise ValueError(f"every draw from seed {seed} to {seed + MAX_SEED_TRIES - 1} had near-duplicate theses")

@@ -1,3 +1,5 @@
+import pytest
+
 from aipc.config import load_config
 from aipc.context import Context
 from aipc.models import Decomposition
@@ -89,3 +91,20 @@ def test_debaters_only_see_published_turns(fake_llm, tmp_path):
 
     against_call = next(c for c in fake_llm.calls if c["prompt_name"] == "debater_against")
     assert "For argument." in against_call["prompt"]
+
+
+def test_a_ledger_reply_with_no_readable_claim_raises(fake_llm, tmp_path):
+    fake_llm.responses["ledger_flat"] = "I would argue that the analogy holds, for three reasons."
+    ctx = _ctx(fake_llm, tmp_path, strategy="flat")
+
+    with pytest.raises(ValueError, match="no CLAIM"):
+        debate_stage.run(DECOMPOSITION, ctx)
+
+
+def test_a_dry_run_ledger_may_be_empty(fake_llm, tmp_path):
+    ctx = _ctx(fake_llm, tmp_path, strategy="flat")
+    ctx.config.dry_run = True
+
+    ledger, _ = debate_stage.run(DECOMPOSITION, ctx)
+
+    assert ledger.claims == []

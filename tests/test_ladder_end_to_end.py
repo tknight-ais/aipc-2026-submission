@@ -48,8 +48,13 @@ def fake_complete(model, prompt, temperature=1.0, seed=None, system=None, reason
     else:
         text = next(reply for opening, reply in REPLIES.items() if prompt.startswith(opening))
     return CompletionResult(
-        text=text, prompt_tokens=100, completion_tokens=50,
-        served_model=model, provider="FakeProvider", generation_id="gen-fake", billed_usd=None,
+        text=text,
+        prompt_tokens=100,
+        completion_tokens=50,
+        served_model=model,
+        provider="FakeProvider",
+        generation_id="gen-fake",
+        billed_usd=None,
     )
 
 

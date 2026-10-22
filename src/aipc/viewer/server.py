@@ -16,7 +16,7 @@ from aipc.viewer import data, rating, render
 
 
 class Handler(BaseHTTPRequestHandler):
-    def __init__(self, *args, runs_dir: Path, experiment: str, **kwargs):
+    def __init__(self, *args, runs_dir: Path, experiment: str | None, **kwargs):
         self.runs_dir = runs_dir
         self.experiment = experiment
         super().__init__(*args, **kwargs)
@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
-        if self.path != "/rate":
+        if self.path != "/rate" or self.experiment is None:
             self.send_error(404)
             return
         form = parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
@@ -46,6 +46,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def rate_page(self) -> str:
+        if self.experiment is None:
+            return render.rate_no_experiment_page()
         store = Store(self.runs_dir)
         with closing(store.conn):
             total = len(rating.anchors(store, self.experiment))
@@ -71,5 +73,5 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
 
-def make_server(runs_dir: Path, port: int, experiment: str = "poc") -> ThreadingHTTPServer:
+def make_server(runs_dir: Path, port: int, experiment: str | None = None) -> ThreadingHTTPServer:
     return ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, runs_dir=runs_dir, experiment=experiment))

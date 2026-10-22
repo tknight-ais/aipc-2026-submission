@@ -38,8 +38,16 @@ REASONING_ALLOWANCE = 1.5
 # at essay length; every other reply at SHORT_REPLY_TOKENS. The longest
 # other reply measured was 2,188 tokens (ledger_flat).
 LONG_REPLY_PROMPTS = {
-    "zero_shot_thesis", "draft", "revise", "revise_free", "baseline", "degrade_essay",
-    "judge_pairwise", "judge_pairwise_neutral", "judge_pairwise_reasoned", "judge_absolute",
+    "zero_shot_thesis",
+    "draft",
+    "revise",
+    "revise_free",
+    "baseline",
+    "degrade_essay",
+    "judge_pairwise",
+    "judge_pairwise_neutral",
+    "judge_pairwise_reasoned",
+    "judge_absolute",
 }
 SHORT_REPLY_TOKENS = 2500
 
@@ -109,17 +117,17 @@ def _cost(model_config: ModelConfig, prompt_tokens: int, completion_tokens: int)
 
 def _complete_with_retries(prompt_name: str | None, **kwargs) -> tuple[CompletionResult, int]:
     """Retries transient failures with backoff, logging each one, and
-    returns the result with the number of attempts made.
+    returns the result with the number of attempts made. The last attempt's
+    failure propagates.
     """
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    for attempt in range(1, MAX_ATTEMPTS):
         try:
             return complete(**kwargs), attempt
         except TRANSIENT_ERRORS as error:
-            if attempt == MAX_ATTEMPTS:
-                raise
             wait = RETRY_BASE_SECONDS**attempt
             logger.warning("attempt %d of call name=%s failed: %r; retrying in %ds", attempt, prompt_name, error, wait)
             time.sleep(wait)
+    return complete(**kwargs), MAX_ATTEMPTS
 
 
 class LLMClient:
@@ -146,69 +154,116 @@ class LLMClient:
         model_config = self.config.model_for_tier(tier)
         temperature = self.config.defaults.temperature if temperature is None else temperature
         seed = self.config.defaults.seed if seed is None else seed
-
         if self.dry_run:
-            text = "[dry-run: no call made]"
-            prompt_tokens = int(len(prompt) / CHARS_PER_TOKEN)
-            allowance = REASONING_ALLOWANCE if model_config.reasoning else 1.0
-            essay_tokens = self.config.limits.target_words[1] * TOKENS_PER_WORD
-            reply_tokens = essay_tokens if prompt_name in LONG_REPLY_PROMPTS else SHORT_REPLY_TOKENS
-            completion_tokens = int(reply_tokens * allowance)
-            cost_usd = _cost(model_config, prompt_tokens, completion_tokens)
-            log_prefix = "dry_run call"
+            result = self._estimate(model_config, prompt, prompt_name)
         else:
-            # Logged before the call, not just after - a call that hangs
-            # otherwise leaves no trace of which one it was.
-            logger.info("starting call name=%s tier=%s model=%s", prompt_name, tier, model_config.id)
-            called_at = datetime.now(UTC).isoformat()
-            started = time.monotonic()
-            sent = {"temperature": model_config.supports_temperature, "seed": model_config.supports_seed}
-            result, attempts = _complete_with_retries(
-                prompt_name, model=model_config.id, prompt=prompt, system=system,
-                temperature=temperature if sent["temperature"] else None,
-                seed=seed if sent["seed"] else None,
-                reasoning=model_config.reasoning,
-            )
-            latency_s = time.monotonic() - started
-            text = result.text
-            prompt_tokens = result.prompt_tokens
-            completion_tokens = result.completion_tokens
-            computed_usd = _cost(model_config, prompt_tokens, completion_tokens)
-            cost_usd = computed_usd if result.billed_usd is None else result.billed_usd
-            log_prefix = "call"
-            if self.record is not None:
-                self.record(CallRecord(
-                    prompt_name=prompt_name, tier=tier, requested_model=model_config.id,
-                    served_model=result.served_model, provider=result.provider, generation_id=result.generation_id,
-                    temperature=temperature, seed=seed, sampling_sent=",".join(k for k, v in sent.items() if v),
-                    prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-                    reasoning_tokens=result.reasoning_tokens, cost_usd=computed_usd, billed_usd=result.billed_usd,
-                    finish_reason=result.finish_reason, attempts=attempts, latency_s=latency_s, called_at=called_at,
-                    prompt=prompt if system is None else f"[system]\n{system}\n\n[user]\n{prompt}", response=text,
-                ))
+            result = self._send(tier, model_config, prompt, system, temperature, seed, prompt_name)
 
+        computed_usd = _cost(model_config, result.prompt_tokens, result.completion_tokens)
+        cost_usd = computed_usd if result.billed_usd is None else result.billed_usd
         with self._cost_lock:
             self.total_cost_usd += cost_usd
             total_cost_usd = self.total_cost_usd
         if total_cost_usd > self.config.limits.max_cost_usd:
             raise CostCeilingExceeded(
-                f"run cost {total_cost_usd:.4f} exceeds ceiling "
-                f"{self.config.limits.max_cost_usd:.4f}"
+                f"run cost {total_cost_usd:.4f} exceeds ceiling {self.config.limits.max_cost_usd:.4f}"
             )
-        if not self.dry_run and result.finish_reason != "stop":
-            raise IncompleteReply(f"call name={prompt_name} model={model_config.id} finish_reason={result.finish_reason}")
+        if result.finish_reason != "stop":
+            raise IncompleteReply(
+                f"call name={prompt_name} model={model_config.id} finish_reason={result.finish_reason}"
+            )
         logger.info(
             "%s name=%s tier=%s model=%s temperature=%s seed=%s "
             "prompt_tokens=%d completion_tokens=%d cost_usd=%.4f run_total_usd=%.4f",
-            log_prefix, prompt_name, tier, model_config.id, temperature, seed,
-            prompt_tokens, completion_tokens, cost_usd, total_cost_usd,
+            "dry_run call" if self.dry_run else "call",
+            prompt_name,
+            tier,
+            model_config.id,
+            temperature,
+            seed,
+            result.prompt_tokens,
+            result.completion_tokens,
+            cost_usd,
+            total_cost_usd,
         )
         return CallResult(
-            text=text,
+            text=result.text,
             model=model_config.id,
             temperature=temperature,
             seed=seed,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
             cost_usd=cost_usd,
         )
+
+    def _estimate(self, model_config: ModelConfig, prompt: str, prompt_name: str | None) -> CompletionResult:
+        """A dry run's stand-in reply: no call is made, and the token counts
+        are sized so the cost estimate stays an upper bound.
+        """
+        allowance = REASONING_ALLOWANCE if model_config.reasoning else 1.0
+        essay_tokens = self.config.limits.target_words[1] * TOKENS_PER_WORD
+        reply_tokens = essay_tokens if prompt_name in LONG_REPLY_PROMPTS else SHORT_REPLY_TOKENS
+        return CompletionResult(
+            text="[dry-run: no call made]",
+            prompt_tokens=int(len(prompt) / CHARS_PER_TOKEN),
+            completion_tokens=int(reply_tokens * allowance),
+            served_model=model_config.id,
+            provider=None,
+            generation_id="dry-run",
+            billed_usd=None,
+        )
+
+    def _send(
+        self,
+        tier: str,
+        model_config: ModelConfig,
+        prompt: str,
+        system: str | None,
+        temperature: float,
+        seed: int,
+        prompt_name: str | None,
+    ) -> CompletionResult:
+        """One real call, retried on transient failure and recorded whatever
+        its finish reason.
+        """
+        # Logged before the call, not just after - a call that hangs
+        # otherwise leaves no trace of which one it was.
+        logger.info("starting call name=%s tier=%s model=%s", prompt_name, tier, model_config.id)
+        called_at = datetime.now(UTC).isoformat()
+        started = time.monotonic()
+        sent = {"temperature": model_config.supports_temperature, "seed": model_config.supports_seed}
+        result, attempts = _complete_with_retries(
+            prompt_name,
+            model=model_config.id,
+            prompt=prompt,
+            system=system,
+            temperature=temperature if sent["temperature"] else None,
+            seed=seed if sent["seed"] else None,
+            reasoning=model_config.reasoning,
+        )
+        if self.record is not None:
+            self.record(
+                CallRecord(
+                    prompt_name=prompt_name,
+                    tier=tier,
+                    requested_model=model_config.id,
+                    served_model=result.served_model,
+                    provider=result.provider,
+                    generation_id=result.generation_id,
+                    temperature=temperature,
+                    seed=seed,
+                    sampling_sent=",".join(k for k, v in sent.items() if v),
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                    reasoning_tokens=result.reasoning_tokens,
+                    cost_usd=_cost(model_config, result.prompt_tokens, result.completion_tokens),
+                    billed_usd=result.billed_usd,
+                    finish_reason=result.finish_reason,
+                    attempts=attempts,
+                    latency_s=time.monotonic() - started,
+                    called_at=called_at,
+                    prompt=prompt if system is None else f"[system]\n{system}\n\n[user]\n{prompt}",
+                    response=result.text,
+                )
+            )
+        return result

@@ -35,9 +35,7 @@ def page(title: str, body: str) -> str:
 def render_value(value) -> str:
     """Generic recursive view of any JSON value."""
     if isinstance(value, dict):
-        return "".join(
-            f"<div class='key'>{escape(str(k))}</div>{render_value(v)}" for k, v in value.items()
-        )
+        return "".join(f"<div class='key'>{escape(str(k))}</div>{render_value(v)}" for k, v in value.items())
     if isinstance(value, list):
         if not value:
             return "<span class='muted'>(empty)</span>"
@@ -64,8 +62,7 @@ def index_page(runs: list[dict]) -> str:
         for r in runs
     )
     table = (
-        "<table><tr><th>Run</th><th>Variant</th><th>Status</th><th>Cost</th><th>Essay words</th></tr>"
-        f"{rows}</table>"
+        f"<table><tr><th>Run</th><th>Variant</th><th>Status</th><th>Cost</th><th>Essay words</th></tr>{rows}</table>"
     )
     return page("AIPC runs", f"<h1>AIPC runs</h1>{table}")
 
@@ -77,8 +74,7 @@ def run_page(run: dict, config: dict, stages: list[dict]) -> str:
         f"cost ${run['cost_usd']:.4f} - config {escape(run['config_hash'][:12])}</p>"
     )
     config_block = (
-        "<details><summary>resolved config</summary>"
-        f"<div class='body'>{render_value(config)}</div></details>"
+        f"<details><summary>resolved config</summary><div class='body'>{render_value(config)}</div></details>"
     )
     return page(run["label"], header + config_block + "".join(render_stage(s) for s in stages))
 
@@ -109,6 +105,14 @@ def rate_page(index: int, total: int, first_text: str, second_text: str) -> str:
         f"<div><h2>Second</h2><div class='text'>{escape(second_text)}</div></div></div>{form}"
     )
     return page("Blind rating", body)
+
+
+def rate_no_experiment_page() -> str:
+    return page(
+        "Blind rating",
+        "<h1>Blind rating</h1><p>No experiment chosen. Restart the viewer with "
+        "<code>aipc view --experiment &lt;name&gt;</code>.</p>",
+    )
 
 
 def rate_done_page(total: int) -> str:

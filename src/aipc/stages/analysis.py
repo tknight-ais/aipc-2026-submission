@@ -1,5 +1,5 @@
 """Component-ladder analysis: the pre-registered primary and secondary
-analyses. Standard library only.
+analyses. The statistics use only the standard library.
 
 A pair's outcome is its winner only if both orderings agree; otherwise it
 is a tie, as pre-registered. The pre-registered interval resamples pairs;
@@ -40,23 +40,34 @@ class PairOutcome(BaseModel):
 
 
 def pair_outcomes(judgments: list[Judgment]) -> list[PairOutcome]:
-    """Collapses each pair's two orderings into one outcome."""
-    by_pair = defaultdict(list)
+    """Collapses each pair's two orderings into one outcome. Raises if any
+    pair has other than two orderings: an unfinished tournament would
+    otherwise score its half-judged pairs as ties.
+    """
+    by_pair: defaultdict[tuple[str, str, str], list[str | None]] = defaultdict(list)
     for j in judgments:
         by_pair[(j.thesis_id, j.essay_a_run, j.essay_b_run)].append(j.winner_run)
+    incomplete = [pair for pair, winners in by_pair.items() if len(winners) != 2]
+    if incomplete:
+        raise ValueError(f"{len(incomplete)} pairs do not have exactly two orderings; finish the tournament first")
     outcomes = []
-    for (thesis_id, a, b), winners in sorted(by_pair.items()):
-        consistent = len(winners) == 2 and winners[0] is not None and winners[0] == winners[1]
-        outcomes.append(PairOutcome(
-            thesis_id=thesis_id, essay_a_run=a, essay_b_run=b,
-            winner_run=winners[0] if consistent else None, position_consistent=consistent,
-        ))
+    for (thesis_id, a, b), (first, second) in sorted(by_pair.items()):
+        consistent = first is not None and first == second
+        outcomes.append(
+            PairOutcome(
+                thesis_id=thesis_id,
+                essay_a_run=a,
+                essay_b_run=b,
+                winner_run=first if consistent else None,
+                position_consistent=consistent,
+            )
+        )
     return outcomes
 
 
-def _wins(outcomes: list[PairOutcome], condition_of: dict[str, str]) -> Counter:
+def _wins(outcomes: list[PairOutcome], condition_of: dict[str, str]) -> defaultdict[tuple[str, str], float]:
     """wins[(x, y)] = how often condition x beat condition y; ties count half."""
-    wins = Counter()
+    wins: defaultdict[tuple[str, str], float] = defaultdict(float)
     for o in outcomes:
         a, b = condition_of[o.essay_a_run], condition_of[o.essay_b_run]
         if o.winner_run is None:
@@ -78,9 +89,7 @@ def bradley_terry(outcomes: list[PairOutcome], condition_of: dict[str, str], con
     for _ in range(BT_ITERATIONS):
         for i in conditions:
             total_wins = sum(wins[(i, j)] for j in conditions if j != i)
-            denominator = sum(
-                (wins[(i, j)] + wins[(j, i)]) / (strength[i] + strength[j]) for j in conditions if j != i
-            )
+            denominator = sum((wins[(i, j)] + wins[(j, i)]) / (strength[i] + strength[j]) for j in conditions if j != i)
             strength[i] = total_wins / denominator
     reference = strength[conditions[0]]
     return {c: math.log(strength[c] / reference) for c in conditions}
@@ -113,7 +122,9 @@ def resample_essays(outcomes: list[PairOutcome], rng: random.Random) -> list[Pai
 
 
 def bootstrap_ci(
-    outcomes: list[PairOutcome], condition_of: dict[str, str], conditions: list[str],
+    outcomes: list[PairOutcome],
+    condition_of: dict[str, str],
+    conditions: list[str],
     resample: Callable[[list[PairOutcome], random.Random], list[PairOutcome]] = resample_pairs,
     resamples: int = BOOTSTRAP_RESAMPLES,
 ) -> dict[str, tuple[float, float]]:
@@ -133,14 +144,14 @@ def _percentiles(values: list[float]) -> tuple[float, float]:
 
 def win_rates(outcomes: list[PairOutcome], condition_of: dict[str, str]) -> dict[tuple[str, str], tuple[int, int, int]]:
     """For each condition pair (x, y), x before y alphabetically: (x wins, y wins, ties)."""
-    table = defaultdict(lambda: [0, 0, 0])
+    table: defaultdict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0, 0])
     for o in outcomes:
         x, y = sorted((condition_of[o.essay_a_run], condition_of[o.essay_b_run]))
         if o.winner_run is None:
             table[(x, y)][2] += 1
         else:
             table[(x, y)][0 if condition_of[o.winner_run] == x else 1] += 1
-    return {k: tuple(v) for k, v in sorted(table.items())}
+    return {k: (v[0], v[1], v[2]) for k, v in sorted(table.items())}
 
 
 def position_consistency(outcomes: list[PairOutcome]) -> float:
@@ -163,7 +174,9 @@ def longer_won_share(outcomes: list[PairOutcome], word_count: dict[str, float]) 
     """Share of decided pairs won by the longer essay. Unlike the
     correlation, defined even when one condition wins every pair.
     """
-    decided = [o for o in outcomes if o.winner_run is not None and word_count[o.essay_a_run] != word_count[o.essay_b_run]]
+    decided = [
+        o for o in outcomes if o.winner_run is not None and word_count[o.essay_a_run] != word_count[o.essay_b_run]
+    ]
     if not decided:
         return None
     longer = [max((o.essay_a_run, o.essay_b_run), key=word_count.__getitem__) for o in decided]
@@ -199,8 +212,12 @@ def judge_human_agreement(human: list[HumanJudgment], outcomes: list[PairOutcome
     agreed = sum(a == b for a, b in labels)
     ci = _clopper_pearson(agreed, len(labels)) if labels else (None, None)
     return Agreement(
-        rated=len(labels), agreed=agreed, kappa=_kappa(labels),
-        binomial_p=_binomial_upper_tail(agreed, len(labels)), ci_low=ci[0], ci_high=ci[1],
+        rated=len(labels),
+        agreed=agreed,
+        kappa=_kappa(labels),
+        binomial_p=_binomial_upper_tail(agreed, len(labels)),
+        ci_low=ci[0],
+        ci_high=ci[1],
     )
 
 
@@ -272,22 +289,32 @@ class Report(BaseModel):
     h4_gate_pass: bool
 
 
-def _strengths(outcomes: list[PairOutcome], condition_of: dict[str, str], conditions: list[str]) -> dict[str, StrengthEstimate]:
+def _strengths(
+    outcomes: list[PairOutcome], condition_of: dict[str, str], conditions: list[str]
+) -> dict[str, StrengthEstimate]:
     point = bradley_terry(outcomes, condition_of, conditions)
     by_essay = bootstrap_ci(outcomes, condition_of, conditions, resample_essays)
     by_pair = bootstrap_ci(outcomes, condition_of, conditions, resample_pairs)
     return {
         c: StrengthEstimate(
-            log_strength=point[c], ci_low=by_pair[c][0], ci_high=by_pair[c][1],
-            essay_ci_low=by_essay[c][0], essay_ci_high=by_essay[c][1],
+            log_strength=point[c],
+            ci_low=by_pair[c][0],
+            ci_high=by_pair[c][1],
+            essay_ci_low=by_essay[c][0],
+            essay_ci_high=by_essay[c][1],
         )
         for c in conditions
     }
 
 
 def build_report(
-    experiment: str, judge_model: str, judgments: list[Judgment], human: list[HumanJudgment],
-    condition_of: dict[str, str], word_count: dict[str, float], hedge: dict[str, float],
+    experiment: str,
+    judge_model: str,
+    judgments: list[Judgment],
+    human: list[HumanJudgment],
+    condition_of: dict[str, str],
+    word_count: dict[str, float],
+    hedge: dict[str, float],
 ) -> Report:
     """Primary analysis per thesis and pooled, every secondary analysis, and both gates."""
     outcomes = pair_outcomes(judgments)
@@ -303,7 +330,9 @@ def build_report(
         essays=len(condition_of),
         pairs=len(outcomes),
         strengths=strengths,
-        win_rates=[f"{x} vs {y}: {w[0]}-{w[1]}, {w[2]} ties" for (x, y), w in win_rates(outcomes, condition_of).items()],
+        win_rates=[
+            f"{x} vs {y}: {w[0]}-{w[1]}, {w[2]} ties" for (x, y), w in win_rates(outcomes, condition_of).items()
+        ],
         position_consistency=consistency,
         verbosity_correlation=verbosity_correlation(outcomes, word_count),
         longer_won_share=longer_won_share(outcomes, word_count),

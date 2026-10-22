@@ -19,7 +19,9 @@ def _write_candidates(run_dir, specs):
 
 
 def test_load_survivors_keeps_only_double_passes_in_order(tmp_path):
-    specs = [("one", PASS, PASS), ("two", FAIL, None), ("three", PASS, FAIL)] + [(f"c{i}", PASS, PASS) for i in range(8)]
+    specs = [("one", PASS, PASS), ("two", FAIL, None), ("three", PASS, FAIL)] + [
+        (f"c{i}", PASS, PASS) for i in range(8)
+    ]
     _write_candidates(tmp_path, specs)
     assert thesis_draw.load_survivors(tmp_path) == ["one"] + [f"c{i}" for i in range(8)]
 

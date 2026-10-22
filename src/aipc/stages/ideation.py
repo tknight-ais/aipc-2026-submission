@@ -9,21 +9,32 @@ prompt, so the candidates are samples from one distribution and tend to
 converge. Claude models ignore the seed, so it does not vary them either.
 """
 
+import re
+from typing import Literal
+
 from aipc.context import Context
 from aipc.models import FilterVerdict, LiteraturePack, ScreenedThesis, ThesisCandidate
 from aipc.replies import parse_verdict
 
+THESIS_KEY = re.compile(r"[*_#\s]*THESIS[*_]*:[*_]*")
+RATIONALE_KEY = re.compile(r"[*_#\s]*RATIONALE[*_]*:[*_]*")
+
 
 def _parse_thesis(text: str) -> tuple[str, str]:
-    thesis_part, _, rationale_part = text.partition("RATIONALE:")
-    return thesis_part.replace("THESIS:", "").strip(), rationale_part.strip()
+    """(thesis, rationale): the text after THESIS and after RATIONALE, with
+    any markdown around either key dropped.
+    """
+    thesis_part, _, rationale_part = RATIONALE_KEY.sub("RATIONALE:", text, count=1).partition("RATIONALE:")
+    return THESIS_KEY.sub("", thesis_part, count=1).strip(), rationale_part.strip()
 
 
 def _sources_text(lit_pack: LiteraturePack) -> str:
     return "\n".join(lit_pack.sources) or "(no results)"
 
 
-def _generate(prompt_name: str, origin: str, n: int, ctx: Context, **fields) -> list[ThesisCandidate]:
+def _generate(
+    prompt_name: str, origin: Literal["cold", "informed"], n: int, ctx: Context, **fields
+) -> list[ThesisCandidate]:
     candidates = []
     for _ in range(n):
         thesis, rationale = _parse_thesis(ctx.ask(prompt_name, **fields).text)
@@ -37,8 +48,13 @@ def generate_cold(topic: str, n: int, ctx: Context) -> list[ThesisCandidate]:
 
 def generate_informed(topic: str, lit_pack: LiteraturePack, n: int, ctx: Context) -> list[ThesisCandidate]:
     return _generate(
-        "ideation_informed", "informed", n, ctx,
-        topic=topic, background=lit_pack.background, sources=_sources_text(lit_pack),
+        "ideation_informed",
+        "informed",
+        n,
+        ctx,
+        topic=topic,
+        background=lit_pack.background,
+        sources=_sources_text(lit_pack),
     )
 
 

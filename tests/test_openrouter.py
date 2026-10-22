@@ -56,7 +56,10 @@ def test_complete_returns_text_and_usage(mock_get_client):
     assert result.prompt_tokens == 10
     assert result.completion_tokens == 20
     assert (result.served_model, result.provider, result.generation_id, result.billed_usd) == (
-        "test/model-served", "TestProvider", "gen-1", 0.002
+        "test/model-served",
+        "TestProvider",
+        "gen-1",
+        0.002,
     )
     mock_client.chat.completions.create.assert_called_once_with(
         model="test/model",

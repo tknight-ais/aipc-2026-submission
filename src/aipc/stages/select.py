@@ -15,9 +15,9 @@ from itertools import combinations
 
 from pydantic import BaseModel
 
+from aipc.blind import normalise
 from aipc.context import Context
 from aipc.stages import neutral_judge
-from aipc.blind import normalise
 
 
 class Trial(BaseModel):
@@ -46,12 +46,16 @@ class SelectionResult(BaseModel):
 def judge_trial(name_a: str, name_b: str, texts: dict[str, str], judge_tier: str, seed: int, ctx: Context) -> Trial:
     first, _ = neutral_judge.compare(texts[name_a], texts[name_b], judge_tier, seed, ctx)
     second, _ = neutral_judge.compare(texts[name_b], texts[name_a], judge_tier, seed, ctx)
-    winner_a_first = {"A": name_a, "B": name_b}.get(first)
-    winner_b_first = {"A": name_b, "B": name_a}.get(second)
+    winner_a_first = {"A": name_a, "B": name_b}[first] if first else None
+    winner_b_first = {"A": name_b, "B": name_a}[second] if second else None
     winner = winner_a_first if winner_a_first == winner_b_first else None
     return Trial(
-        essay_a=name_a, essay_b=name_b, seed=seed,
-        winner_a_first=winner_a_first, winner_b_first=winner_b_first, winner=winner,
+        essay_a=name_a,
+        essay_b=name_b,
+        seed=seed,
+        winner_a_first=winner_a_first,
+        winner_b_first=winner_b_first,
+        winner=winner,
     )
 
 

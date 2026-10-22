@@ -48,7 +48,10 @@ def test_compare_pairwise_parses_winner_a(fake_llm, tmp_path):
 def test_compare_both_orderings_consistent_when_same_essay_wins_each_time(fake_llm, tmp_path):
     # Candidate is "A" in the first call and "B" in the second - a
     # consistent preference for the candidate looks like A then B.
-    fake_llm.responses["judge_pairwise"] = ["WINNER: A\nREASONING:\nFirst order.", "WINNER: B\nREASONING:\nSecond order."]
+    fake_llm.responses["judge_pairwise"] = [
+        "WINNER: A\nREASONING:\nFirst order.",
+        "WINNER: B\nREASONING:\nSecond order.",
+    ]
     ctx = _ctx(fake_llm, tmp_path)
     candidate = Essay(text="Candidate essay.", word_count=2, thesis="X")
     reference = Essay(text="Reference essay.", word_count=2, thesis="X")
@@ -60,7 +63,10 @@ def test_compare_both_orderings_consistent_when_same_essay_wins_each_time(fake_l
 
 
 def test_compare_both_orderings_inconsistent_when_orderings_disagree(fake_llm, tmp_path):
-    fake_llm.responses["judge_pairwise"] = ["WINNER: A\nREASONING:\nFirst order.", "WINNER: A\nREASONING:\nSecond order."]
+    fake_llm.responses["judge_pairwise"] = [
+        "WINNER: A\nREASONING:\nFirst order.",
+        "WINNER: A\nREASONING:\nSecond order.",
+    ]
     ctx = _ctx(fake_llm, tmp_path)
     candidate = Essay(text="Candidate essay.", word_count=2, thesis="X")
     reference = Essay(text="Reference essay.", word_count=2, thesis="X")
@@ -73,7 +79,9 @@ def test_compare_both_orderings_inconsistent_when_orderings_disagree(fake_llm, t
 
 def test_score_absolute_drops_unreadable_scores(fake_llm, tmp_path):
     fake_llm.responses["judge_absolute"] = "CRITERION: rigor\nSCORE: high\n\nCRITERION: clarity\nSCORE: 7.5"
-    scores = judge_stage.score_absolute(Essay(text="E.", word_count=1, thesis="X"), "e", PERSONA, "mirror", _ctx(fake_llm, tmp_path))
+    scores = judge_stage.score_absolute(
+        Essay(text="E.", word_count=1, thesis="X"), "e", PERSONA, "mirror", _ctx(fake_llm, tmp_path)
+    )
     assert [(s.criterion, s.score) for s in scores] == [("clarity", 7.5)]
 
 

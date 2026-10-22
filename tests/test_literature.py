@@ -21,7 +21,9 @@ def test_run_formats_sources_and_parses_background(fake_llm, tmp_path, monkeypat
         }
     ]
     monkeypatch.setattr(literature_stage, "search_openalex", lambda query, limit=8: fake_works)
-    fake_llm.responses["literature_queries"] = "consequence argument free will\ncompatibilism\nfrankfurt freedom of the will"
+    fake_llm.responses["literature_queries"] = (
+        "consequence argument free will\ncompatibilism\nfrankfurt freedom of the will"
+    )
     fake_llm.responses["literature_background"] = (
         "BACKGROUND:\nCompatibilists and incompatibilists disagree about determinism.\n\n"
         "ENGAGE:\n- Frankfurt's paper directly challenges incompatibilist positions."
@@ -31,7 +33,9 @@ def test_run_formats_sources_and_parses_background(fake_llm, tmp_path, monkeypat
     pack = literature_stage.run("free will", ctx)
 
     assert pack.queries == ["consequence argument free will", "compatibilism", "frankfurt freedom of the will"]
-    assert pack.sources == ["Freedom of the Will and the Concept of a Person - Harry G. Frankfurt (1971)"], "deduplicated by id"
+    assert pack.sources == ["Freedom of the Will and the Concept of a Person - Harry G. Frankfurt (1971)"], (
+        "deduplicated by id"
+    )
     assert pack.background == "Compatibilists and incompatibilists disagree about determinism."
     assert pack.engagement_list == ["Frankfurt's paper directly challenges incompatibilist positions."]
     assert [c["prompt_name"] for c in fake_llm.calls] == ["literature_queries", "literature_background"]
@@ -44,7 +48,9 @@ def test_run_skips_search_in_dry_run(fake_llm, tmp_path, monkeypatch):
         raise AssertionError("search_openalex should not be called in dry_run")
 
     monkeypatch.setattr(literature_stage, "search_openalex", fail)
-    fake_llm.responses["literature_background"] = "BACKGROUND:\nnone\n\nENGAGE:\nnone of the above are directly relevant"
+    fake_llm.responses["literature_background"] = (
+        "BACKGROUND:\nnone\n\nENGAGE:\nnone of the above are directly relevant"
+    )
     ctx = _ctx(fake_llm, tmp_path, dry_run=True)
 
     pack = literature_stage.run("free will", ctx)
@@ -69,3 +75,9 @@ def test_search_openalex_drops_wildcard_characters(monkeypatch):
     monkeypatch.setattr(literature_stage.httpx, "get", fake_get)
     literature_stage.search_openalex("Why be moral? A *study*")
     assert "?" not in sent["search"] and "*" not in sent["search"]
+
+
+def test_search_queries_drop_numbering_and_a_preamble(fake_llm, tmp_path):
+    fake_llm.responses["literature_queries"] = "Queries:\n1. consequence argument\n2. compatibilism\n3. frankfurt cases"
+    queries = literature_stage.search_queries("topic", _ctx(fake_llm, tmp_path))
+    assert queries == ["consequence argument", "compatibilism", "frankfurt cases"]

@@ -15,7 +15,9 @@ def _problems(model: ModelConfig, live: dict) -> list[str]:
     live_out = float(live["pricing"]["completion"]) * 1_000_000
     problems = []
     if (round(live_in, 4), round(live_out, 4)) != (model.usd_per_mtok_in, model.usd_per_mtok_out):
-        problems.append(f"price ${model.usd_per_mtok_in}/${model.usd_per_mtok_out} in config, ${live_in:.2f}/${live_out:.2f} live")
+        problems.append(
+            f"price ${model.usd_per_mtok_in}/${model.usd_per_mtok_out} in config, ${live_in:.2f}/${live_out:.2f} live"
+        )
     supported = set(live.get("supported_parameters", []))
     for flag, parameter in SAMPLING_FLAGS.items():
         if getattr(model, flag) != (parameter in supported):
