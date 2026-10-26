@@ -115,9 +115,13 @@ def _git_state() -> tuple[str | None, bool | None]:
     return commit.stdout.strip(), bool(status.stdout.strip())
 
 
-def _start_run(variant: str, slug: str, dry_run: bool, config: Config | None = None) -> Context:
+def _start_run(
+    variant: str, slug: str, dry_run: bool, config: Config | None = None, replay_from: str | None = None
+) -> Context:
     """Loads config (unless given an already-resolved one), logs it, and
-    opens a run row under a human-readable, time-sortable label.
+    opens a run row under a human-readable, time-sortable label. With
+    `replay_from`, that failed run's recorded replies are reused (see
+    LLMClient).
     """
     config = config or load_config(DEFAULT_CONFIG_PATH)
     config.dry_run = dry_run
@@ -126,11 +130,15 @@ def _start_run(variant: str, slug: str, dry_run: bool, config: Config | None = N
     logger.info("variant=%s config_hash=%s", variant, config_hash)
     logger.info("resolved config: %s", config_json)
 
+    store = Store(runs_dir=_runs_dir())
+    replay = store.calls(replay_from) if replay_from else None
+    if replay_from and not replay:
+        raise typer.BadParameter(f"no recorded calls for run {replay_from!r}; give the full run_id it printed")
     run_id = str(uuid.uuid4())
     started_at = datetime.now(UTC)
     label = f"{started_at:%Y%m%d-%H%M%S}_{variant}_{_slugify(slug)}_{run_id[:8]}"
+    logger.info("run_id=%s label=%s", run_id, label)
     git_commit, git_dirty = _git_state()
-    store = Store(runs_dir=_runs_dir())
     store.save_config(config_hash, config_json)
     store.start_run(
         run_id,
@@ -141,7 +149,13 @@ def _start_run(variant: str, slug: str, dry_run: bool, config: Config | None = N
         git_commit=git_commit,
         git_dirty=git_dirty,
     )
-    llm = LLMClient(config, dry_run=dry_run, record=lambda call: store.save_call(run_id, call))
+    llm = LLMClient(
+        config,
+        dry_run=dry_run,
+        record=lambda call: store.save_call(run_id, call),
+        replay=replay,
+        replay_run=replay_from,
+    )
     return Context(llm=llm, config=config, run_id=run_id, store=store)
 
 
@@ -155,16 +169,19 @@ def _with_ceiling(config: Config, max_cost_usd: float | None) -> Config:
 
 def _close_run(ctx: Context, status: str) -> None:
     ctx.store.finish_run(ctx.run_id, datetime.now(UTC).isoformat(), cost_usd=ctx.llm.total_cost_usd, status=status)
+    logger.info("run_id=%s closed: %s, $%.4f", ctx.run_id, status, ctx.llm.total_cost_usd)
 
 
 @contextmanager
-def _run(variant: str, slug: str, dry_run: bool, config: Config | None = None) -> Iterator[Context]:
+def _run(
+    variant: str, slug: str, dry_run: bool, config: Config | None = None, replay_from: str | None = None
+) -> Iterator[Context]:
     """Opens a run and closes it however the command ends: `ok` (or
     `dry_run`), `over_ceiling` if its cost ceiling stopped it, `failed` on
     any other error or an interrupt. Every close records the cost spent so
     far, so a crashed run is never left `running` at $0.
     """
-    ctx = _start_run(variant, slug, dry_run, config)
+    ctx = _start_run(variant, slug, dry_run, config, replay_from)
     try:
         yield ctx
     except CostCeilingExceeded:
@@ -336,7 +353,9 @@ def _experiment_essay(
     max_cost_usd: float | None,
 ) -> float:
     """Writes one experiment essay as its own run and returns its cost."""
-    config = experiment_stage.condition_config(base_config, condition, exp.generator_tier, seed=exp.seed + index)
+    config = experiment_stage.condition_config(
+        base_config, condition, exp.generator_tier, seed=exp.seed + index, target_words=exp.target_words
+    )
     config = _with_ceiling(config, None if max_cost_usd is None else min(max_cost_usd, config.limits.max_cost_usd))
     with _run(condition, slug=f"{exp.name}-{thesis.id}", dry_run=dry_run, config=config) as ctx:
         essay, essay_path = experiment_stage.write_essay(condition, thesis.claim, ctx)
@@ -679,15 +698,38 @@ def draft(
 @app.command(rich_help_panel="Original pipeline")
 def generate(
     topic: Annotated[str, typer.Option(help="Topic area to generate a full essay for.")],
+    tier: Annotated[
+        str | None, typer.Option("--tier", help="Model tier for every generation call; overrides defaults.tier.")
+    ] = None,
+    strategy: Annotated[
+        str | None,
+        typer.Option("--strategy", help="How the ledger is built: flat or debate_room; overrides pipeline.strategy."),
+    ] = None,
+    evaluate: Annotated[
+        bool, typer.Option(help="Afterwards, score the essay against a fresh baseline with the persona panel.")
+    ] = True,
+    resume: Annotated[
+        str | None,
+        typer.Option(
+            "--resume",
+            help="run_id of a failed generate run with the same options: its recorded replies are reused, not paid for.",
+        ),
+    ] = None,
+    max_cost: MaxCost = None,
     dry_run: DryRun = False,
 ) -> None:
     """Full pipeline, one topic in: literature -> ideation -> decomposition
-    -> ledger -> draft/critique/revise -> judge against a fresh baseline
-    reference. See pipeline.py for the stage order and its one known
-    simplification (the reference essay isn't frozen across runs yet).
+    -> ledger -> draft/critique/revise, then (unless --no-evaluate) the
+    persona panel against a fresh baseline reference. See pipeline.py for
+    the stage order.
     """
-    with _run("generate", slug=topic, dry_run=dry_run) as ctx:
-        result = run_pipeline(topic, ctx)
+    config = _with_ceiling(load_config(DEFAULT_CONFIG_PATH), max_cost)
+    config.defaults.tier = tier or config.defaults.tier
+    if strategy is not None and strategy not in debate_stage.STRATEGIES:
+        raise typer.BadParameter(f"--strategy must be one of: {', '.join(debate_stage.STRATEGIES)}")
+    config.pipeline.strategy = strategy or config.pipeline.strategy
+    with _run("generate", slug=topic, dry_run=dry_run, config=config, replay_from=resume) as ctx:
+        result = run_pipeline(topic, ctx, evaluate=evaluate)
 
     typer.echo(f"thesis: {result.thesis}")
     typer.echo(f"sub_questions: {' / '.join(result.decomposition.sub_questions)}")

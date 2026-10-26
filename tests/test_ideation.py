@@ -74,6 +74,17 @@ def test_screen_skips_novelty_when_significance_fails(fake_llm, tmp_path):
     assert not any(c["prompt_name"] == "novelty_filter" for c in fake_llm.calls)
 
 
+def test_screen_estimates_novelty_for_every_candidate_in_a_dry_run(fake_llm, tmp_path):
+    ctx = _ctx(fake_llm, tmp_path)
+    ctx.config.dry_run = True
+    candidates = [ThesisCandidate(claim=c, origin="cold", rationale="Y") for c in ("X", "Z")]
+
+    results = ideation_stage.screen(candidates, LiteraturePack(background="", sources=[]), ctx)
+
+    assert all(r.significance.passed is False for r in results)
+    assert sum(c["prompt_name"] == "novelty_filter" for c in fake_llm.calls) == 2
+
+
 def test_run_pools_cold_and_informed_batches(fake_llm, tmp_path):
     fake_llm.responses["ideation_cold"] = THESIS_TEXT
     fake_llm.responses["ideation_informed"] = THESIS_TEXT

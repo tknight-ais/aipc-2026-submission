@@ -39,6 +39,17 @@ def test_condition_config_sets_generator_tier_and_frontier_for_e():
     assert experiment.condition_config(base, "E_frontier_zero_shot", "cheap", seed=1).defaults.tier == "frontier"
 
 
+def test_condition_config_takes_the_experiments_word_target_when_set():
+    base = load_config()
+    assert experiment.condition_config(
+        base, "A_zero_shot", "cheap", seed=1, target_words=(3000, 3400)
+    ).limits.target_words == (3000, 3400)
+    assert (
+        experiment.condition_config(base, "A_zero_shot", "cheap", seed=1).limits.target_words
+        == base.limits.target_words
+    )
+
+
 def test_structured_condition_uses_generator_tier_throughout(fake_llm, tmp_path):
     ctx = _ctx(fake_llm, tmp_path, "C_structured")
     ctx.config = experiment.condition_config(load_config(), "C_structured", "standard", seed=7)

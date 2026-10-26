@@ -161,3 +161,43 @@ def test_dry_run_prices_short_replies_below_essays(config):
     essay = llm.call(tier="cheap", prompt="p", prompt_name="zero_shot_thesis").completion_tokens
     verdict = llm.call(tier="cheap", prompt="p", prompt_name="validity_gate").completion_tokens
     assert verdict < essay
+
+
+@patch("aipc.llm.complete")
+def test_a_recorded_reply_is_replayed_free_and_recorded_with_its_source(mock_complete, config, call_record):
+    recorded = []
+    llm = LLMClient(config, record=recorded.append, replay=[call_record(response="old reply")], replay_run="run-old")
+
+    result = llm.call(tier="cheap", prompt="write it", prompt_name="draft")
+
+    assert result.text == "old reply"
+    assert mock_complete.call_count == 0
+    assert llm.total_cost_usd == 0.0
+    assert recorded[0].replayed_from == "run-old"
+    assert recorded[0].cost_usd == 0.0
+    assert recorded[0].generation_id == "gen-old"
+
+
+@patch("aipc.llm.complete")
+def test_identical_prompts_replay_in_recorded_order_then_call_live(mock_complete, config, call_record):
+    mock_complete.return_value = _completion(text="live reply")
+    llm = LLMClient(config, replay=[call_record(response="first"), call_record(response="second")], replay_run="r")
+
+    texts = [llm.call(tier="cheap", prompt="write it", prompt_name="draft").text for _ in range(3)]
+
+    assert texts == ["first", "second", "live reply"]
+    assert mock_complete.call_count == 1
+
+
+@patch("aipc.llm.complete")
+def test_only_a_finished_reply_to_the_same_prompt_and_seed_is_replayed(mock_complete, config, call_record):
+    mock_complete.return_value = _completion(text="live reply")
+    replay = [
+        call_record(response="cut off", finish_reason="length"),
+        call_record(response="other prompt", prompt="write something else"),
+        call_record(response="other seed", seed=config.defaults.seed + 1),
+    ]
+    llm = LLMClient(config, replay=replay, replay_run="r")
+
+    assert llm.call(tier="cheap", prompt="write it", prompt_name="draft").text == "live reply"
+    assert mock_complete.call_count == 1
