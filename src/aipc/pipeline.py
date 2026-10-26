@@ -40,9 +40,9 @@ class PipelineResult:
     decomposition: Decomposition
     ledger: ContentLedger
     essay: Essay
-    reference_essay: Essay
     rounds: list[RevisionRound]
     fidelity: FidelityReview
+    reference_essay: Essay | None
     comparisons: dict[str, dict]
 
 
@@ -68,7 +68,10 @@ def write_baseline(topic: str, ctx: Context) -> Essay:
     return Essay.from_text(result.text, thesis=None)
 
 
-def run(topic: str, ctx: Context) -> PipelineResult:
+def run(topic: str, ctx: Context, evaluate: bool = True) -> PipelineResult:
+    """Topic in, essay out. With `evaluate`, the persona panel then scores
+    the essay against a fresh baseline; the essay does not depend on it.
+    """
     lit_pack = literature_stage.run(topic, ctx)
     ctx.store.save_artifact(ctx.run_id, "literature", lit_pack)
 
@@ -92,10 +95,27 @@ def run(topic: str, ctx: Context) -> PipelineResult:
         ctx.store.save_measurement(ctx.run_id, "hedge_density", revision_round.hedge_density)
     ctx.store.save_artifact(ctx.run_id, "fidelity", fidelity)
     ctx.store.save_artifact(ctx.run_id, "essay", essay, markdown_text=essay.text)
+    ctx.store.save_measurement(ctx.run_id, "word_count", float(essay.word_count))
 
+    reference_essay, comparisons = _evaluate(essay, topic, ctx) if evaluate else (None, {})
+    return PipelineResult(
+        thesis=thesis,
+        decomposition=decomposition,
+        ledger=content_ledger,
+        essay=essay,
+        rounds=rounds,
+        fidelity=fidelity,
+        reference_essay=reference_essay,
+        comparisons=comparisons,
+    )
+
+
+def _evaluate(essay: Essay, topic: str, ctx: Context) -> tuple[Essay, dict[str, dict]]:
+    """The persona panel's absolute scores and pairwise verdicts against a
+    fresh baseline essay on the same topic.
+    """
     reference_essay = write_baseline(topic, ctx)
     ctx.store.save_artifact(ctx.run_id, "reference", reference_essay, markdown_text=reference_essay.text)
-    ctx.store.save_measurement(ctx.run_id, "word_count", float(essay.word_count))
 
     comparisons: dict[str, dict] = {}
     for persona in judge_stage.MIRROR_PANEL:
@@ -108,14 +128,4 @@ def run(topic: str, ctx: Context) -> PipelineResult:
         winner = "candidate" if comparison["candidate_wins"] else "reference"
         ctx.store.save_comparison("candidate", "reference", persona.name, winner, "both_orders")
         comparisons[persona.name] = comparison
-
-    return PipelineResult(
-        thesis=thesis,
-        decomposition=decomposition,
-        ledger=content_ledger,
-        essay=essay,
-        reference_essay=reference_essay,
-        rounds=rounds,
-        fidelity=fidelity,
-        comparisons=comparisons,
-    )
+    return reference_essay, comparisons

@@ -1,5 +1,5 @@
 # Model ids, per-token prices and seed/temperature support checked against
-# OpenRouter's live /api/v1/models on 2026-10-21 with `aipc prices`, which
+# OpenRouter's live /api/v1/models on 2026-10-26 with `aipc prices`, which
 # exits 1 on any mismatch. Run it before every paid step; prices drift.
 #
 # supports_seed / supports_temperature: OpenRouter silently drops a
@@ -20,7 +20,7 @@ models:
   # Component-ladder judge candidates, separate from the generation tiers and from
   # a different family than the generator (now Claude, so not judge_opus46). `aipc judge-select`
   # picks one. Prices verified against /api/v1/models on 2026-10-09.
-  judge_qwen:   { id: "qwen/qwen3-30b-a3b-instruct-2507", usd_per_mtok_in: 0.09, usd_per_mtok_out: 0.30 }
+  judge_qwen:   { id: "qwen/qwen3-30b-a3b-instruct-2507", usd_per_mtok_in: 0.10, usd_per_mtok_out: 0.30 }
   judge_gemini: { id: "google/gemini-2.5-flash",          usd_per_mtok_in: 0.30, usd_per_mtok_out: 2.50 }
   judge_opus46: { id: "anthropic/claude-opus-4.6",        usd_per_mtok_in: 5.00, usd_per_mtok_out: 25.00, supports_seed: false }
   # Frontier-phase judge candidates: not Claude, because Claude generates.
@@ -50,7 +50,11 @@ limits:
   # Body words, excluding title and references. The contest allows 6,000
   # words per essay, and no source confirms that references are excluded
   # (checked 2026-10-13), so the target leaves room for a reference list.
-  target_words: [5000, 5400]
+  # Lowered from [5000, 5400] on 2026-10-26 for the contest essay: an Opus
+  # 5.5 probe ran 5% over its maximum and reached 5,880 words with its
+  # references, and the pipeline revises up to three times. An experiment
+  # can set its own target_words.
+  target_words: [4600, 5000]
 
 pipeline:
   # Which Decomposition -> ContentLedger strategy runs - "flat" (one

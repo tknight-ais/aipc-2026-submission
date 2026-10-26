@@ -67,10 +67,13 @@ def check_novelty(candidate: ThesisCandidate, lit_pack: LiteraturePack, ctx: Con
 
 
 def screen(candidates: list[ThesisCandidate], lit_pack: LiteraturePack, ctx: Context) -> list[ScreenedThesis]:
+    """A dry run's placeholder verdict never passes, so a dry run checks
+    novelty for every candidate: its cost estimate stays an upper bound.
+    """
     screened = []
     for candidate in candidates:
         significance = check_significance(candidate, ctx)
-        novelty = check_novelty(candidate, lit_pack, ctx) if significance.passed else None
+        novelty = check_novelty(candidate, lit_pack, ctx) if significance.passed or ctx.config.dry_run else None
         screened.append(ScreenedThesis(candidate=candidate, significance=significance, novelty=novelty))
     return screened
 

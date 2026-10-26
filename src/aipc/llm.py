@@ -9,6 +9,7 @@ priced, logged, counted against the run's cost ceiling and handed to the
 import logging
 import threading
 import time
+from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -74,6 +75,8 @@ class CallRecord(BaseModel):
     names the ones actually sent (empty for models that support neither).
     `attempts` counts tries, failed ones included; a failed try may still
     have been billed, so attempts > 1 means check the provider's records.
+    `replayed_from` names the failed run whose recorded reply was reused
+    instead of calling the model; such a call costs nothing.
     """
 
     prompt_name: str | None
@@ -96,6 +99,18 @@ class CallRecord(BaseModel):
     called_at: str
     prompt: str
     response: str
+    replayed_from: str | None = None
+
+
+ReplayKey = tuple[str | None, str, str, int]
+
+
+def _recorded_prompt(prompt: str, system: str | None) -> str:
+    return prompt if system is None else f"[system]\n{system}\n\n[user]\n{prompt}"
+
+
+def _replay_key(prompt_name: str | None, model: str, recorded_prompt: str, seed: int) -> ReplayKey:
+    return prompt_name, model, recorded_prompt, seed
 
 
 class CostCeilingExceeded(Exception):
@@ -131,15 +146,37 @@ def _complete_with_retries(prompt_name: str | None, **kwargs) -> tuple[Completio
 
 
 class LLMClient:
-    """Tracks cumulative cost for one run and enforces its ceiling."""
+    """Tracks cumulative cost for one run and enforces its ceiling.
 
-    def __init__(self, config: Config, dry_run: bool = False, record: Callable[[CallRecord], None] | None = None):
+    Given the calls of a failed run (`replay`, from run `replay_run`), a
+    real call whose prompt name, model, prompt and seed match a finished
+    recorded call reuses that reply instead of paying for it again. The
+    stages are deterministic given their replies, so a rerun with the same
+    settings replays up to the point of failure, then calls live. Matching
+    calls replay in their recorded order, so repeated identical prompts
+    (ideation's candidates) get their replies back in turn.
+    """
+
+    def __init__(
+        self,
+        config: Config,
+        dry_run: bool = False,
+        record: Callable[[CallRecord], None] | None = None,
+        replay: list[CallRecord] | None = None,
+        replay_run: str | None = None,
+    ):
         self.config = config
         self.dry_run = dry_run
         self.record = record
         self.total_cost_usd = 0.0
+        self.replay_run = replay_run
+        self._replay: dict[ReplayKey, deque[CallRecord]] = defaultdict(deque)
+        for call in replay or []:
+            if call.finish_reason == "stop":
+                key = _replay_key(call.prompt_name, call.requested_model, call.prompt, call.seed)
+                self._replay[key].append(call)
         # Critics run as concurrent calls from a thread pool; this guards
-        # the shared running total against a lost-update race.
+        # the shared running total and the replay queues against races.
         self._cost_lock = threading.Lock()
 
     def call(
@@ -224,8 +261,14 @@ class LLMClient:
         prompt_name: str | None,
     ) -> CompletionResult:
         """One real call, retried on transient failure and recorded whatever
-        its finish reason.
+        its finish reason, unless a failed run's recorded reply replays it.
         """
+        recorded_prompt = _recorded_prompt(prompt, system)
+        with self._cost_lock:
+            queue = self._replay.get(_replay_key(prompt_name, model_config.id, recorded_prompt, seed))
+            previous = queue.popleft() if queue else None
+        if previous is not None:
+            return self._replayed(previous)
         # Logged before the call, not just after - a call that hangs
         # otherwise leaves no trace of which one it was.
         logger.info("starting call name=%s tier=%s model=%s", prompt_name, tier, model_config.id)
@@ -262,8 +305,38 @@ class LLMClient:
                     attempts=attempts,
                     latency_s=time.monotonic() - started,
                     called_at=called_at,
-                    prompt=prompt if system is None else f"[system]\n{system}\n\n[user]\n{prompt}",
+                    prompt=recorded_prompt,
                     response=result.text,
                 )
             )
         return result
+
+    def _replayed(self, previous: CallRecord) -> CompletionResult:
+        """A recorded reply reused at no cost, and recorded again for this
+        run with the run it came from.
+        """
+        logger.info("replayed call name=%s from run %s", previous.prompt_name, self.replay_run)
+        if self.record is not None:
+            self.record(
+                previous.model_copy(
+                    update={
+                        "cost_usd": 0.0,
+                        "billed_usd": 0.0,
+                        "attempts": 0,
+                        "latency_s": 0.0,
+                        "called_at": datetime.now(UTC).isoformat(),
+                        "replayed_from": self.replay_run,
+                    }
+                )
+            )
+        return CompletionResult(
+            text=previous.response,
+            prompt_tokens=previous.prompt_tokens,
+            completion_tokens=previous.completion_tokens,
+            served_model=previous.served_model,
+            provider=previous.provider,
+            generation_id=previous.generation_id,
+            billed_usd=0.0,
+            finish_reason=previous.finish_reason,
+            reasoning_tokens=previous.reasoning_tokens,
+        )

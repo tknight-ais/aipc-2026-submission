@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS calls (
     sampling_sent TEXT,
     reasoning_tokens INTEGER,
     finish_reason TEXT,
-    attempts INTEGER
+    attempts INTEGER,
+    replayed_from TEXT
 );
 
 CREATE TABLE IF NOT EXISTS measurements (
@@ -204,7 +205,13 @@ class HumanJudgment(BaseModel):
 # new database; an older one gets them when it is opened.
 ADDED_COLUMNS = {
     "runs": {"git_commit": "TEXT", "git_dirty": "INTEGER"},
-    "calls": {"sampling_sent": "TEXT", "reasoning_tokens": "INTEGER", "finish_reason": "TEXT", "attempts": "INTEGER"},
+    "calls": {
+        "sampling_sent": "TEXT",
+        "reasoning_tokens": "INTEGER",
+        "finish_reason": "TEXT",
+        "attempts": "INTEGER",
+        "replayed_from": "TEXT",
+    },
     "judgments": {"judge_prompt_hash": "TEXT"},
 }
 
@@ -298,6 +305,13 @@ class Store:
 
     def save_call(self, run_id: str, call: CallRecord) -> None:
         self._insert("calls", call, run_id=run_id)
+
+    def calls(self, run_id: str) -> list[CallRecord]:
+        """A run's recorded calls, in the order they were made."""
+        cursor = self.conn.execute("SELECT * FROM calls WHERE run_id = ? ORDER BY id", (run_id,))
+        names = [d[0] for d in cursor.description]
+        rows = [dict(zip(names, row)) for row in cursor.fetchall()]
+        return [CallRecord(**{k: v for k, v in row.items() if k not in ("id", "run_id")}) for row in rows]
 
     def save_artifact(self, run_id: str, stage: str, artifact: BaseModel, markdown_text: str | None = None) -> Path:
         run_dir = self._run_dirs[run_id]

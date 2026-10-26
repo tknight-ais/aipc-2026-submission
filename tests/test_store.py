@@ -54,3 +54,15 @@ def test_a_new_database_has_every_column_without_migrating(tmp_path):
     for table, columns in store_module.ADDED_COLUMNS.items():
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         assert set(columns) <= existing, table
+
+
+def test_a_runs_calls_come_back_in_the_order_made(tmp_path, call_record):
+    store = Store(runs_dir=tmp_path)
+    store.save_call("run1", call_record(response="one"))
+    store.save_call("run2", call_record(response="other run"))
+    store.save_call("run1", call_record(response="two", replayed_from="run0"))
+
+    calls = store.calls("run1")
+
+    assert [c.response for c in calls] == ["one", "two"]
+    assert calls[1].replayed_from == "run0"

@@ -33,12 +33,18 @@ class Thesis(BaseModel):
 
 
 class ExperimentConfig(BaseModel):
+    """`target_words`, when set, replaces `limits.target_words` for every
+    essay in the experiment, so an experiment's length doesn't move when the
+    default does.
+    """
+
     name: str
     seed: int
     essays_per_condition: int
     generator_tier: str
     conditions: list[str]
     theses: list[Thesis]
+    target_words: tuple[int, int] | None = None
 
 
 def load_experiment(path: Path) -> ExperimentConfig:
@@ -51,15 +57,19 @@ def load_experiment(path: Path) -> ExperimentConfig:
     return experiment
 
 
-def condition_config(base: Config, condition: str, generator_tier: str, seed: int) -> Config:
+def condition_config(
+    base: Config, condition: str, generator_tier: str, seed: int, target_words: tuple[int, int] | None = None
+) -> Config:
     """The resolved config for one essay: one critique round, the
-    condition's ledger strategy and generator tier, and the essay's own seed.
+    condition's ledger strategy and generator tier, the essay's own seed,
+    and the experiment's word target if it sets one.
     """
     strategy = "debate_room" if condition == "D_debate" else "flat"
     tier = FRONTIER_TIER if condition == "E_frontier_zero_shot" else generator_tier
     pipeline = base.pipeline.model_copy(update={"strategy": strategy, "max_revision_rounds": 1})
     defaults = base.defaults.model_copy(update={"seed": seed, "tier": tier})
-    return base.model_copy(update={"pipeline": pipeline, "defaults": defaults})
+    limits = base.limits.model_copy(update={"target_words": target_words}) if target_words else base.limits
+    return base.model_copy(update={"pipeline": pipeline, "defaults": defaults, "limits": limits})
 
 
 def write_zero_shot(thesis: str, ctx: Context) -> Essay:

@@ -7,7 +7,9 @@ import httpx
 from openai import OpenAI
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-REQUEST_TIMEOUT_SECONDS = 120.0
+# Opus 5.5 essay calls have taken 162 s. A timeout is retried, and the
+# provider may already have billed the abandoned attempt.
+REQUEST_TIMEOUT_SECONDS = 600.0
 # A cap, not a target: about three times the longest essay asked for, so a
 # truncated reply means something went wrong. finish_reason catches it.
 MAX_OUTPUT_TOKENS = 32_000

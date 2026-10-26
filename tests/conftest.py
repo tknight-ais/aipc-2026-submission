@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from aipc.llm import CallResult
+from aipc.config import load_config
+from aipc.llm import CallRecord, CallResult
 from aipc.models import ContentLedger
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -57,6 +58,41 @@ class FakeLLM:
 @pytest.fixture
 def fake_llm():
     return FakeLLM()
+
+
+@pytest.fixture
+def call_record():
+    """Builds a finished call on the cheap tier as the calls table stores
+    it; keyword arguments override any field.
+    """
+    config = load_config()
+
+    def build(**overrides) -> CallRecord:
+        fields = {
+            "prompt_name": "draft",
+            "tier": "cheap",
+            "requested_model": config.model_for_tier("cheap").id,
+            "served_model": "test/served",
+            "provider": "TestProvider",
+            "generation_id": "gen-old",
+            "temperature": 1.0,
+            "seed": config.defaults.seed,
+            "sampling_sent": "",
+            "prompt_tokens": 100,
+            "completion_tokens": 100,
+            "reasoning_tokens": None,
+            "cost_usd": 0.05,
+            "billed_usd": 0.05,
+            "finish_reason": "stop",
+            "attempts": 1,
+            "latency_s": 3.0,
+            "called_at": "2026-10-26T00:00:00+00:00",
+            "prompt": "write it",
+            "response": "a reply",
+        }
+        return CallRecord(**(fields | overrides))
+
+    return build
 
 
 @pytest.fixture

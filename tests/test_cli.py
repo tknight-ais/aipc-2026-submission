@@ -1,5 +1,8 @@
+import json
 import re
+import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -69,6 +72,29 @@ def test_generate_dry_run_needs_no_api_key(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert "estimated cost" in result.output
     assert (tmp_path / "runs.db").exists()
+
+
+def test_generate_runs_at_a_given_tier_and_strategy_without_the_panel(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    args = ["--tier", "frontier", "--strategy", "debate_room", "--no-evaluate", "--dry-run"]
+    result = runner.invoke(app, ["generate", "--topic", "metaethics", *args])
+    assert result.exit_code == 0, result.output
+
+    conn = sqlite3.connect(tmp_path / "runs.db")
+    stages = {row[0] for row in conn.execute("SELECT stage FROM artifacts")}
+    [config_json] = [row[0] for row in conn.execute("SELECT config_json FROM configs")]
+    assert "essay" in stages
+    assert "reference" not in stages
+    assert json.loads(config_json)["defaults"]["tier"] == "frontier"
+    assert json.loads(config_json)["pipeline"]["strategy"] == "debate_room"
+
+
+def test_generate_rejects_an_unknown_strategy_before_starting_a_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    result = runner.invoke(app, ["generate", "--topic", "metaethics", "--strategy", "debate", "--dry-run"])
+    assert result.exit_code == 2
+    assert not (tmp_path / "runs.db").exists()
 
 
 def test_select_dry_run_over_recorded_essays(monkeypatch, tmp_path):
@@ -332,3 +358,25 @@ def test_a_run_that_fails_is_closed_as_failed_with_its_cost(monkeypatch, tmp_pat
     )
     assert status == "failed"
     assert cost == ctx.llm.total_cost_usd > 0
+
+
+@patch("aipc.llm.complete")
+def test_a_resumed_run_replays_the_failed_runs_replies(mock_complete, monkeypatch, tmp_path, call_record):
+    from aipc.cli import _start_run
+    from aipc.config import load_config
+    from aipc.store import Store
+
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    Store(tmp_path).save_call("old-run", call_record(response="paid for once"))
+
+    ctx = _start_run("generate", "metaethics", dry_run=False, config=load_config(), replay_from="old-run")
+
+    assert ctx.llm.call(tier="cheap", prompt="write it", prompt_name="draft").text == "paid for once"
+    assert mock_complete.call_count == 0
+
+
+def test_resuming_an_unknown_run_stops_before_starting_one(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    result = runner.invoke(app, ["generate", "--topic", "metaethics", "--resume", "no-such-run"])
+    assert result.exit_code == 2
+    assert sqlite3.connect(tmp_path / "runs.db").execute("SELECT COUNT(*) FROM runs").fetchone() == (0,)
