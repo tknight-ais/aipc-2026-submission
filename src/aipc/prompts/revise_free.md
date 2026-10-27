@@ -15,8 +15,13 @@ Produce a complete revised essay that:
   target.
 
 Address the objections by developing the argument further, not by adding
-hedges or qualifiers to avoid taking a position. The revised essay must
-meet the same requirements as the draft:
+hedges or qualifiers to avoid taking a position.
+
+The current draft's body is {word_count} words, not counting the title and
+references. Where your replies add material, tighten other passages so
+the revised essay stays within the length requirement below rather than
+growing past it. The revised essay must meet the same requirements as the
+draft:
 
 {requirements}
 

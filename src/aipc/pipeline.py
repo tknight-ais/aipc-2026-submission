@@ -32,6 +32,7 @@ from aipc.stages import draft as draft_stage
 from aipc.stages import ideation as ideation_stage
 from aipc.stages import judge as judge_stage
 from aipc.stages import literature as literature_stage
+from aipc.stages.checks import MAX_WORDS
 
 
 @dataclass
@@ -71,6 +72,11 @@ def write_baseline(topic: str, ctx: Context) -> Essay:
 def run(topic: str, ctx: Context, evaluate: bool = True) -> PipelineResult:
     """Topic in, essay out. With `evaluate`, the persona panel then scores
     the essay against a fresh baseline; the essay does not depend on it.
+
+    The ledger carries the topic and the literature stage's engagement list
+    and sources to the writing stage, which otherwise sees none of them:
+    without them the essay never learns what question it answers or which
+    works to engage, and writes its references from memory.
     """
     lit_pack = literature_stage.run(topic, ctx)
     ctx.store.save_artifact(ctx.run_id, "literature", lit_pack)
@@ -86,9 +92,12 @@ def run(topic: str, ctx: Context, evaluate: bool = True) -> PipelineResult:
     content_ledger, transcripts = debate_stage.run(decomposition, ctx)
     for i, transcript in enumerate(transcripts):
         ctx.store.save_artifact(ctx.run_id, f"transcript{i}", transcript)
+    content_ledger = content_ledger.model_copy(
+        update={"question": topic, "engagements": lit_pack.engagement_list, "sources": lit_pack.sources}
+    )
     ctx.store.save_artifact(ctx.run_id, "ledger", content_ledger)
 
-    essay, rounds, fidelity = draft_stage.run(content_ledger, ctx)
+    essay, rounds, fidelity = draft_stage.run(content_ledger, ctx, max_words=MAX_WORDS)
     for revision_round in rounds:
         ctx.store.save_artifact(ctx.run_id, f"round{revision_round.round_num}", revision_round)
         ctx.store.save_measurement(ctx.run_id, "word_count", float(revision_round.word_count))
