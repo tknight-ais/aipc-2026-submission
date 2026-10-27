@@ -34,11 +34,13 @@ YEAR_TOLERANCE = 1
 SEARCH_RESULTS = 5
 ENTRY_YEAR = re.compile(r"\b((?:19|20)\d{2})\b")
 ENTRY_FIRST_NAME = re.compile(r"\s*([A-Z][\w'’-]+)")
-CITATION_NARRATIVE = re.compile(r"\b([A-Z][\w'’-]+)(?: et al\.)?\s+\(((?:19|20)\d{2})")
+# The year may follow other text in the brackets: "Parfit (Reasons and Persons, 1984)".
+CITATION_NARRATIVE = re.compile(r"\b([A-Z][\w'’-]+)(?: et al\.)?\s+\([^()]*?\b((?:19|20)\d{2})")
 CITATION_PARENTHETICAL = re.compile(
     r"[(;]\s*(?:see\s+)?(?:[A-Z][\w'’-]+\s+(?:and|&)\s+)?([A-Z][\w'’-]+)(?: et al\.)?,?\s+((?:19|20)\d{2})"
 )
-APA_TITLE = re.compile(r"\(?\b(?:19|20)\d{2}[a-z]?\)?\.\s*[\"“']?(.+?[.?!])[\"”']?(?:\s|$)")
+POSSESSIVE = re.compile(r"['’]s$")
+APA_TITLE = re.compile(r"\(?\b(?:19|20)\d{2}[a-z]?\)?\.?\s*[\"“']?(.+?[.?!])[\"”']?(?:\s|$)")
 PROCESS_TERMS = re.compile(
     r"\b(?:content ledger|ledger|revision round|reviser|drafter|this draft|earlier draft|"
     r"word count|word limit|sub-questions?|as an AI|I am an AI|the prompt)\b",
@@ -140,7 +142,10 @@ def check_reference(entry: str) -> ReferenceCheck:
 
 
 def in_text_citations(body: str) -> set[tuple[str, str]]:
-    return set(CITATION_NARRATIVE.findall(body)) | set(CITATION_PARENTHETICAL.findall(body))
+    """(surname, year) pairs. A possessive, as in "Frankfurt's (1971)", names
+    the surname without its "'s"."""
+    pairs = set(CITATION_NARRATIVE.findall(body)) | set(CITATION_PARENTHETICAL.findall(body))
+    return {(POSSESSIVE.sub("", surname), year) for surname, year in pairs}
 
 
 def unmatched_citations(body: str, entries: list[str]) -> list[str]:

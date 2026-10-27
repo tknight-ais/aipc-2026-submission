@@ -8,12 +8,15 @@ concentrate in the first pass. The loop stops when
 a round's critics raise nothing new, or after a hard cap of rounds.
 """
 
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 
 from aipc.context import Context
 from aipc.models import ContentLedger, Critique, Essay, FidelityReview, RevisionRound, split_bibliography
 from aipc.replies import is_none
+
+logger = logging.getLogger(__name__)
 
 # A deliberately simple lexical heuristic for boldness erosion, not a
 # claim of semantic precision - cheap to log per round, which is the
@@ -62,9 +65,17 @@ def essay_requirements(ctx: Context) -> str:
     return ctx.render("essay_requirements", word_min=word_min, word_max=word_max)
 
 
+def ledger_json(ledger: ContentLedger) -> str:
+    """The ledger as the writing prompts see it. A ledger without a
+    question (the comparison's) renders exactly as it did before the field
+    existed.
+    """
+    return ledger.model_dump_json(indent=2, exclude_none=True)
+
+
 def draft_essay(ledger: ContentLedger, ctx: Context) -> Essay:
     """The Drafter's first pass: ledger in, essay out, no revision."""
-    result = ctx.ask("draft", ledger_json=ledger.model_dump_json(indent=2), requirements=essay_requirements(ctx))
+    result = ctx.ask("draft", ledger_json=ledger_json(ledger), requirements=essay_requirements(ctx))
     return Essay.from_text(result.text, thesis=ledger.thesis)
 
 
@@ -114,8 +125,9 @@ def critique_round(
 def revise(essay: Essay, ledger: ContentLedger, objections: list[str], ctx: Context) -> Essay:
     result = ctx.ask(
         "revise",
-        ledger_json=ledger.model_dump_json(indent=2),
+        ledger_json=ledger_json(ledger),
         essay_text=essay.text,
+        word_count=essay.word_count,
         objections_text="\n\n".join(objections),
         requirements=essay_requirements(ctx),
     )
@@ -127,6 +139,7 @@ def revise_free(essay: Essay, objections: list[str], ctx: Context) -> Essay:
     result = ctx.ask(
         "revise_free",
         essay_text=essay.text,
+        word_count=essay.word_count,
         objections_text="\n\n".join(objections),
         requirements=essay_requirements(ctx),
     )
@@ -134,18 +147,25 @@ def revise_free(essay: Essay, objections: list[str], ctx: Context) -> Essay:
 
 
 def check_fidelity(essay: Essay, ledger: ContentLedger, ctx: Context) -> FidelityReview:
-    result = ctx.ask("fidelity", ledger_json=ledger.model_dump_json(indent=2), essay_text=essay.text)
+    result = ctx.ask("fidelity", ledger_json=ledger_json(ledger), essay_text=essay.text)
     dropped_part, _, claims_part = result.text.partition("UNSUPPORTED CLAIMS:")
     dropped = dropped_part.replace("DROPPED OBJECTIONS:", "").strip()
     return FidelityReview(dropped_objections=dropped, unsupported_claims=claims_part.strip())
 
 
-def run(ledger: ContentLedger, ctx: Context) -> tuple[Essay, list[RevisionRound], FidelityReview]:
+def run(
+    ledger: ContentLedger, ctx: Context, max_words: int | None = None
+) -> tuple[Essay, list[RevisionRound], FidelityReview]:
     """Full Drafter -> Critics -> Reviser loop, then a ledger-fidelity
     pass over the final essay. Stops once every critic in a round
     returns NONE; otherwise runs to the configured hard cap.
+
+    With `max_words`, the essay kept is the last version within it, so a
+    revision that grows past the contest's limit is dropped by a fixed
+    rule instead of being cut by hand.
     """
     essay = draft_essay(ledger, ctx)
+    versions = [essay]
     rounds: list[RevisionRound] = []
     raised_so_far: list[str] = []
 
@@ -157,5 +177,24 @@ def run(ledger: ContentLedger, ctx: Context) -> tuple[Essay, list[RevisionRound]
         raised_so_far.extend(objections)
         essay = revise(essay, ledger, objections, ctx)
         essay.rounds_used = round_num
+        versions.append(essay)
 
+    if max_words is not None:
+        essay = last_within(versions, max_words)
     return essay, rounds, check_fidelity(essay, ledger, ctx)
+
+
+def last_within(versions: list[Essay], max_words: int) -> Essay:
+    """The latest version whose words, title and references included, are
+    at most `max_words` - the count `aipc check` applies. Raises when even
+    the draft is over: no version could be submitted.
+    """
+    totals = [len(v.text.split()) for v in versions]
+    fitting = [v for v, total in zip(versions, totals) if total <= max_words]
+    if not fitting:
+        raise ValueError(f"every version is over {max_words} words: {totals}")
+    if fitting[-1] is not versions[-1]:
+        logger.info(
+            "versions' total words %s; kept revision %d, the last within %d", totals, fitting[-1].rounds_used, max_words
+        )
+    return fitting[-1]

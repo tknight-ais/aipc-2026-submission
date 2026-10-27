@@ -88,6 +88,9 @@ def test_generate_runs_at_a_given_tier_and_strategy_without_the_panel(monkeypatc
     assert "reference" not in stages
     assert json.loads(config_json)["defaults"]["tier"] == "frontier"
     assert json.loads(config_json)["pipeline"]["strategy"] == "debate_room"
+    [ledger_path] = [row[0] for row in conn.execute("SELECT location FROM artifacts WHERE stage = 'ledger'")]
+    ledger = json.loads(Path(ledger_path).read_text())
+    assert (ledger["question"], ledger["sources"]) == ("metaethics", [])
 
 
 def test_generate_rejects_an_unknown_strategy_before_starting_a_run(monkeypatch, tmp_path):

@@ -82,11 +82,19 @@ class Objection(BaseModel):
 
 
 class ContentLedger(BaseModel):
+    """`question`, `engagements` and `sources` come from the topic and the
+    literature stage; only the full pipeline has them. `sources` are the
+    retrieved records, full author names and titles, so the drafter's
+    references need not be written from memory.
+    """
+
+    question: str | None = None
     thesis: str
     claims: list[Claim] = []
     objections: list[Objection] = []
     concessions: list[str] = []
     engagements: list[str] = []
+    sources: list[str] | None = None
 
 
 # "References", "## Bibliography", "**Works Cited:**", "Reference List" ...

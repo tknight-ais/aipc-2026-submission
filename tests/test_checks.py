@@ -82,6 +82,19 @@ def test_title_query_extracts_author_year_titles():
     assert checks.title_query("No year here. A Title.") == "No year here. A Title."
     quoted = 'Frankfurt, Harry (1971). "Freedom of the Will and the Concept of a Person." Journal of Philosophy 68(1).'
     assert checks.title_query(quoted) == "Freedom of the Will and the Concept of a Person"
+    no_stop = "Frankfurt, H. (1971) Freedom of the Will and the Concept of a Person. Journal of Philosophy."
+    assert checks.title_query(no_stop) == "Freedom of the Will and the Concept of a Person"
+
+
+def test_a_possessive_citation_names_the_surname():
+    body = "Frankfurt's (1971) argument and O'Neill (2002) differ."
+    assert checks.in_text_citations(body) == {("Frankfurt", "1971"), ("O'Neill", "2002")}
+
+
+def test_a_citation_with_text_before_the_year_needs_an_entry():
+    body = "Smith and Jones (Working Paper 7-2019, §3) raise a worry, as Parfit (Reasons and Persons, 1984) did."
+    entries = ["Parfit, D. (1984). Reasons and Persons. Oxford University Press."]
+    assert checks.unmatched_citations(body, entries) == ["Jones 2019"]
 
 
 def test_count_words_excludes_the_bibliography():

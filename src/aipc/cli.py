@@ -734,7 +734,10 @@ def generate(
     typer.echo(f"thesis: {result.thesis}")
     typer.echo(f"sub_questions: {' / '.join(result.decomposition.sub_questions)}")
     typer.echo(f"ledger: {len(result.ledger.claims)} claims, {len(result.ledger.objections)} objections")
-    typer.echo(f"essay: {result.essay.word_count} words, {len(result.rounds)} revision rounds")
+    typer.echo(
+        f"essay: {result.essay.word_count} words, revision {result.essay.rounds_used} kept "
+        f"of {len(result.rounds)} critique rounds"
+    )
     for name, comparison in result.comparisons.items():
         typer.echo(f"[{name}] beat reference={comparison['candidate_wins']} consistent={comparison['consistent']}")
     _report_run(ctx)
