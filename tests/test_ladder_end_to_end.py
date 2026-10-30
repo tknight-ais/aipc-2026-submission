@@ -106,3 +106,10 @@ def test_ladder_chain_end_to_end(monkeypatch, tmp_path):
     assert pooled["A_zero_shot"]["log_strength"] == 0.0
     assert all(pooled[c]["log_strength"] > 0 for c in ["B_critique", "C_structured", "D_debate"])
     assert report["pairs"] == len(judgments) // 2
+
+    result = runner.invoke(app, ["tournament", "--experiment", "e2e", "--judge", "judge_qwen", "--per-essay", "4"])
+    assert result.exit_code == 0, result.output
+    assert runner.invoke(app, ["analyze", "--experiment", "e2e"]).exit_code != 0, "two judges must not be pooled"
+    result = runner.invoke(app, ["analyze", "--experiment", "e2e", "--judge", "judge_qwen"])
+    assert result.exit_code == 0, result.output
+    assert "judge qwen/qwen3-30b-a3b-instruct-2507" in result.output

@@ -172,3 +172,14 @@ def test_hedge_density_counts_whole_phrases_in_the_body_only():
     body = "Perhaps so. A process we cannot audit may be wrong, and it is impossibly hard."
     text = f"{body}\n\nReferences\nPerhaps, A. 2001. Arguably True. Possibly Press."
     assert draft_stage.hedge_density(text) == pytest.approx(1 / len(body.split()) * 1000)
+
+
+def test_parse_fidelity_reads_headings_with_markdown():
+    review = draft_stage.parse_fidelity("**Dropped objections:**\nnone\n\n## UNSUPPORTED CLAIMS\nOne claim.", False)
+    assert (review.dropped_objections, review.unsupported_claims) == ("none", "One claim.")
+
+
+def test_parse_fidelity_without_its_second_section_raises_outside_a_dry_run():
+    with pytest.raises(ValueError, match="no UNSUPPORTED CLAIMS section"):
+        draft_stage.parse_fidelity("DROPPED OBJECTIONS:\nnone", dry_run=False)
+    assert draft_stage.parse_fidelity("[dry-run]", dry_run=True).dropped_objections == "[dry-run]"

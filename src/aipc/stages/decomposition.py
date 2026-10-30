@@ -39,7 +39,7 @@ def generate_candidates(thesis: str, n: int, ctx: Context) -> list[Decomposition
 
 def check_validity(decomposition: Decomposition, ctx: Context) -> FilterVerdict:
     result = ctx.ask("validity_gate", thesis=decomposition.thesis, sub_questions="\n".join(decomposition.sub_questions))
-    return parse_verdict(result.text)
+    return parse_verdict(result.text, ctx.config.dry_run)
 
 
 def screen(candidates: list[Decomposition], ctx: Context) -> list[ScreenedDecomposition]:

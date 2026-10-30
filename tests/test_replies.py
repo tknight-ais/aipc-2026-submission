@@ -16,10 +16,16 @@ def test_parse_verdict_never_reads_fail_as_pass():
     assert not parse_verdict("VERDICT: PASS or FAIL: FAIL\nREASONING: x").passed
 
 
-def test_parse_verdict_fails_an_unreadable_reply_and_keeps_it():
-    verdict = parse_verdict("I think this passes.")
+def test_parse_verdict_raises_on_an_unreadable_reply():
+    for reply in ("I think this passes.", "VERDICT: PASS or FAIL"):
+        with pytest.raises(ValueError, match="unreadable verdict"):
+            parse_verdict(reply)
+
+
+def test_a_dry_run_fails_an_unreadable_verdict_and_keeps_it():
+    verdict = parse_verdict("[dry-run: no call made]", dry_run=True)
     assert not verdict.passed
-    assert verdict.reasoning == "I think this passes."
+    assert verdict.reasoning == "[dry-run: no call made]"
 
 
 def test_parse_winner_reads_essay_prefix_and_markdown():

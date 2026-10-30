@@ -45,6 +45,7 @@ from aipc.stages import judge as judge_stage
 from aipc.stages import judge_select as judge_select_stage
 from aipc.stages import literature as literature_stage
 from aipc.stages import power as power_stage
+from aipc.stages import ranking as ranking_stage
 from aipc.stages import select as select_stage
 from aipc.stages import thesis_draw as thesis_draw_stage
 from aipc.stages import tournament as tournament_stage
@@ -425,6 +426,82 @@ def draw_anchors(experiment_name: ExperimentName) -> None:
     typer.echo(f"run_id: {ctx.run_id}")
 
 
+@app.command("add-essay", rich_help_panel="Component ladder")
+def add_essay(
+    config_path: Annotated[Path, typer.Option("--config", help="Experiment YAML the essay joins.")],
+    run_id: Annotated[str, typer.Option("--run-id", help="run_id of the generate run whose essay joins.")],
+    condition: Annotated[str, typer.Option(help="Condition name the essay is judged under.")] = "F_full_pipeline",
+) -> None:
+    """Add a finished generate run's essay to an experiment as a condition of
+    its own, so the tournament judges it alongside the ladder's essays. It
+    must argue one of the experiment's theses, because pairs form within a
+    thesis, and it must join before the tournament starts, because the
+    pairing schedule depends on every essay. No API calls.
+    """
+    exp = experiment_stage.load_experiment(config_path)
+    store = Store(_runs_dir())
+    if store.judgments(exp.name):
+        raise typer.BadParameter(f"{exp.name!r} already has judgments: an essay added now would change the pairing")
+    if any(e.run_id == run_id for e in store.experiment_essays(exp.name)):
+        raise typer.BadParameter(f"{run_id} is already in {exp.name!r}")
+    path = store.artifact_location(run_id, "essay")
+    theses = [t for t in exp.theses if t.claim == _load_essay(path).thesis]
+    if not theses:
+        raise typer.BadParameter(f"the essay's thesis is not one of {exp.name!r}'s theses")
+    with _run("add-essay", slug=exp.name, dry_run=False):
+        store.save_experiment_essay(exp.name, theses[0].id, condition, 0, run_id, path)
+    typer.echo(f"added {run_id} to {exp.name!r} as {theses[0].id}/{condition}")
+
+
+@app.command("blind-set", rich_help_panel="Component ladder")
+def blind_set(experiment_name: ExperimentName, seed: Annotated[int, typer.Option(help="Draw seed.")] = 1) -> None:
+    """Draw one essay per condition for a blind human ranking, and write each
+    as the judge sees it, under a random code, to runs/blind_<experiment>/.
+    The key is kept in the run's own folder: don't open it before ranking.
+    No API calls.
+    """
+    store = Store(_runs_dir())
+    essays = store.experiment_essays(experiment_name)
+    drawn = ranking_stage.draw_blind_set(experiment_name, essays, seed)
+    path_of = {e.run_id: e.essay_path for e in essays}
+    folder = _runs_dir() / f"blind_{experiment_name}"
+    folder.mkdir(exist_ok=True)
+    with _run("blind-set", slug=experiment_name, dry_run=False) as ctx:
+        ctx.store.save_artifact(ctx.run_id, "blind_set", drawn)
+        for entry in drawn.entries:
+            (folder / f"{entry.code}.md").write_text(normalise(_load_essay(path_of[entry.run_id]).text))
+    typer.echo(f"wrote {len(drawn.entries)} essays to {folder}: {' '.join(e.code for e in drawn.entries)}")
+    typer.echo(f"rank them best first, then: aipc blind-score --blind-run {ctx.run_id} --ranking CODE,CODE,...")
+
+
+@app.command("blind-score", rich_help_panel="Component ladder")
+def blind_score(
+    blind_run: Annotated[str, typer.Option("--blind-run", help="run_id that blind-set printed.")],
+    ranking: Annotated[str, typer.Option(help="Every code, best essay first, separated by commas.")],
+) -> None:
+    """Compare a blind human ranking with the judge's order of the same
+    essays, by Kendall's tau. Run it only once the ranking is final: it
+    reveals the conditions. No API calls.
+    """
+    store = Store(_runs_dir())
+    drawn = ranking_stage.BlindSet.model_validate_json(store.artifact_location(blind_run, "blind_set").read_text())
+    by_code = {e.code: e for e in drawn.entries}
+    codes = [c.strip().upper() for c in ranking.split(",")]
+    if sorted(codes) != sorted(by_code):
+        raise typer.BadParameter(f"rank every essay exactly once: {' '.join(sorted(by_code))}")
+    judgments = store.judgments(drawn.experiment)
+    _single_judge(judgments)
+    human = [by_code[c].run_id for c in codes]
+    result = ranking_stage.agreement(human, ranking_stage.judge_order(judgments, human))
+    with _run("blind-score", slug=drawn.experiment, dry_run=False) as ctx:
+        ctx.store.save_artifact(ctx.run_id, "blind_score", result)
+    label = {e.run_id: f"{e.code} ({e.condition})" for e in drawn.entries}
+    typer.echo(f"your order:  {' > '.join(label[r] for r in result.human_order)}")
+    typer.echo(f"judge order: {' > '.join(label[r] for r in result.judge_order)}")
+    pairs = result.concordant + result.discordant
+    typer.echo(f"same order in {result.concordant} of {pairs} pairs; Kendall's tau {result.tau:+.2f}")
+
+
 @app.command(rich_help_panel="Component ladder")
 def view(
     port: Annotated[int, typer.Option(help="Local port to serve on.")] = 8765,
@@ -441,14 +518,25 @@ def view(
 
 
 @app.command(rich_help_panel="Component ladder")
-def analyze(experiment_name: ExperimentName) -> None:
+def analyze(
+    experiment_name: ExperimentName,
+    judge: Annotated[
+        str | None, typer.Option("--judge", help="Config model entry: analyze only this judge's verdicts.")
+    ] = None,
+) -> None:
     """Pre-registered analysis of a judged experiment: Bradley-Terry
     strengths with bootstrap intervals, win rates, position consistency,
     verbosity check, hedge density, and judge-human agreement. No API calls.
+
+    An experiment judged by more than one model needs `--judge`, so verdicts
+    from different judges are never pooled.
     """
     reader = Store(_runs_dir())
     essays = reader.experiment_essays(experiment_name)
     judgments = reader.judgments(experiment_name)
+    if judge is not None:
+        judge_id = load_config(DEFAULT_CONFIG_PATH).model_for_tier(judge).id
+        judgments = [j for j in judgments if j.judge_model == judge_id]
     judge_model = _single_judge(judgments)
     texts = {e.run_id: _load_essay(e.essay_path) for e in essays}
 
@@ -486,6 +574,13 @@ def _print_report(report: analysis_stage.Report) -> None:
         for condition, e in estimates.items():
             typer.echo(
                 f"  {condition:14} {e.log_strength:+.2f}  [{e.ci_low:+.2f}, {e.ci_high:+.2f}]"
+                f"  [{e.essay_ci_low:+.2f}, {e.essay_ci_high:+.2f}]"
+            )
+    if report.factorial is not None:
+        typer.echo("2x2 effects in log-strength (pooled), 95% bootstrap CI by pair [by essay]:")
+        for effect, e in report.factorial.items():
+            typer.echo(
+                f"  {effect:14} {e.estimate:+.2f}  [{e.ci_low:+.2f}, {e.ci_high:+.2f}]"
                 f"  [{e.essay_ci_low:+.2f}, {e.essay_ci_high:+.2f}]"
             )
     typer.echo("win rates:")
@@ -715,6 +810,14 @@ def generate(
             help="run_id of a failed generate run with the same options: its recorded replies are reused, not paid for.",
         ),
     ] = None,
+    plans: Annotated[
+        int | None,
+        typer.Option(
+            "--plans",
+            help="Decomposition candidates; overrides pipeline.decomposition_candidates. "
+            "After a run in which none passed the validity gate, resume with more: those already drawn replay.",
+        ),
+    ] = None,
     max_cost: MaxCost = None,
     dry_run: DryRun = False,
 ) -> None:
@@ -725,6 +828,7 @@ def generate(
     """
     config = _with_ceiling(load_config(DEFAULT_CONFIG_PATH), max_cost)
     config.defaults.tier = tier or config.defaults.tier
+    config.pipeline.decomposition_candidates = plans or config.pipeline.decomposition_candidates
     if strategy is not None and strategy not in debate_stage.STRATEGIES:
         raise typer.BadParameter(f"--strategy must be one of: {', '.join(debate_stage.STRATEGIES)}")
     config.pipeline.strategy = strategy or config.pipeline.strategy

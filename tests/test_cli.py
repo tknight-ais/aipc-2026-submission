@@ -5,9 +5,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from aipc.cli import app
+from aipc.store import Judgment
 
 runner = CliRunner()
 
@@ -383,3 +385,97 @@ def test_resuming_an_unknown_run_stops_before_starting_one(monkeypatch, tmp_path
     result = runner.invoke(app, ["generate", "--topic", "metaethics", "--resume", "no-such-run"])
     assert result.exit_code == 2
     assert sqlite3.connect(tmp_path / "runs.db").execute("SELECT COUNT(*) FROM runs").fetchone() == (0,)
+
+
+def test_generate_takes_the_number_of_plans(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    result = runner.invoke(app, ["generate", "--topic", "metaethics", "--plans", "8", "--no-evaluate", "--dry-run"])
+    assert result.exit_code == 0, result.output
+
+    [config_json] = [row[0] for row in sqlite3.connect(tmp_path / "runs.db").execute("SELECT config_json FROM configs")]
+    assert json.loads(config_json)["pipeline"]["decomposition_candidates"] == 8
+
+
+def _experiment_config(tmp_path, claim):
+    path = tmp_path / "cmp.yaml"
+    config = {
+        "name": "cmp",
+        "seed": 1,
+        "essays_per_condition": 1,
+        "generator_tier": "cheap",
+        "conditions": ["A_zero_shot", "D_debate"],
+        "theses": [{"id": "t1", "claim": claim}],
+    }
+    path.write_text(yaml.safe_dump(config))
+    return path
+
+
+def _generate_run_with_essay(store, run_id, thesis):
+    from aipc.models import Essay
+
+    store.start_run(run_id, f"label-{run_id}", "hash", variant="generate", started_at="t")
+    return store.save_artifact(run_id, "essay", Essay.from_text(f"An essay from {run_id}.", thesis=thesis))
+
+
+def test_add_essay_joins_a_generate_run_under_its_thesis(monkeypatch, tmp_path):
+    from aipc.store import Store
+
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    _generate_run_with_essay(Store(tmp_path), "gen1", "The claim.")
+    config = _experiment_config(tmp_path, "The claim.")
+
+    result = runner.invoke(app, ["add-essay", "--config", str(config), "--run-id", "gen1"])
+    assert result.exit_code == 0, result.output
+    [essay] = Store(tmp_path).experiment_essays("cmp")
+    assert (essay.thesis_id, essay.condition, essay.run_id) == ("t1", "F_full_pipeline", "gen1")
+    assert runner.invoke(app, ["add-essay", "--config", str(config), "--run-id", "gen1"]).exit_code != 0
+
+
+def test_add_essay_refuses_an_essay_on_another_thesis(monkeypatch, tmp_path):
+    from aipc.store import Store
+
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    _generate_run_with_essay(Store(tmp_path), "gen1", "Another claim.")
+
+    result = runner.invoke(
+        app, ["add-essay", "--config", str(_experiment_config(tmp_path, "The claim.")), "--run-id", "gen1"]
+    )
+    assert result.exit_code != 0
+    assert Store(tmp_path).experiment_essays("cmp") == []
+
+
+def test_blind_set_then_blind_score(monkeypatch, tmp_path):
+    from aipc.store import Store
+
+    monkeypatch.setenv("AIPC_RUNS_DIR", str(tmp_path))
+    store = Store(tmp_path)
+    for condition in ("A_zero_shot", "D_debate"):
+        path = _generate_run_with_essay(store, condition, "T")
+        store.save_experiment_essay("cmp", "t1", condition, 0, condition, path)
+    for first in ("A_zero_shot", "D_debate"):
+        store.save_judgment(
+            Judgment(
+                experiment="cmp",
+                tournament_run_id="t",
+                thesis_id="t1",
+                essay_a_run="A_zero_shot",
+                essay_b_run="D_debate",
+                judge_model="m",
+                shown_first_run=first,
+                winner_run="D_debate",
+                reasoning="r",
+            )
+        )
+
+    drawn = runner.invoke(app, ["blind-set", "--experiment", "cmp"])
+    assert drawn.exit_code == 0, drawn.output
+    codes_match = re.search(r": ([A-Z]{2} [A-Z]{2})\n", drawn.output)
+    run_match = re.search(r"--blind-run (\S+)", drawn.output)
+    assert codes_match and run_match, drawn.output
+    codes, blind_run = codes_match.group(1).split(), run_match.group(1)
+    assert sorted(p.stem for p in (tmp_path / "blind_cmp").glob("*.md")) == sorted(codes)
+
+    scored = runner.invoke(app, ["blind-score", "--blind-run", blind_run, "--ranking", ",".join(codes)])
+    assert scored.exit_code == 0, scored.output
+    assert "Kendall's tau" in scored.output

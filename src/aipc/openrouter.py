@@ -10,9 +10,11 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Opus 5.5 essay calls have taken 162 s. A timeout is retried, and the
 # provider may already have billed the abandoned attempt.
 REQUEST_TIMEOUT_SECONDS = 600.0
-# A cap, not a target: about three times the longest essay asked for, so a
-# truncated reply means something went wrong. finish_reason catches it.
-MAX_OUTPUT_TOKENS = 32_000
+# A cap, not a target, and hidden reasoning counts against it with the
+# reply. At 32,000 an Opus 5.5 revise call reasoned for 23,792 tokens and was
+# cut off mid-essay (2026-10-28); 64,000 fits that plus the longest essay.
+# finish_reason catches a truncated reply.
+MAX_OUTPUT_TOKENS = 64_000
 
 _client: OpenAI | None = None
 

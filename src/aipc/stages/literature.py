@@ -18,9 +18,12 @@ import httpx
 
 from aipc.context import Context
 from aipc.models import LiteraturePack
-from aipc.replies import list_items
+from aipc.replies import LIST_MARKER, list_items
 
 QUOTED_TITLE = re.compile(r"[\"“]([^\"“”]{10,})[\"”]")
+# A section heading with any markdown around it: "ENGAGE:", "**Engage:**", "## ENGAGE".
+BACKGROUND_KEY = re.compile(r"^[\s*_#>]*BACKGROUND\b[*_]*:?[*_]*", re.IGNORECASE | re.MULTILINE)
+ENGAGE_KEY = re.compile(r"^[\s*_#>]*ENGAGE\b[*_]*:?[*_]*", re.IGNORECASE | re.MULTILINE)
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 OPENALEX_RETRIES = 2
 OPENALEX_RETRY_SECONDS = 2
@@ -98,9 +101,21 @@ def run(topic: str, ctx: Context) -> LiteraturePack:
     sources = [_format_source(work) for work in works]
 
     result = ctx.ask("literature_background", topic=topic, sources="\n".join(sources) or "(no results)")
-
-    background_part, _, engage_part = result.text.partition("ENGAGE:")
-    background = background_part.replace("BACKGROUND:", "").strip()
-    engagement_list = [line.lstrip("- ").strip() for line in engage_part.strip().splitlines() if line.strip()]
-
+    background, engagement_list = parse_background(result.text, ctx.config.dry_run)
     return LiteraturePack(background=background, queries=queries, sources=sources, engagement_list=engagement_list)
+
+
+def parse_background(text: str, dry_run: bool) -> tuple[str, list[str]]:
+    """(background, engagement list) from the BACKGROUND and ENGAGE
+    sections, with markdown around either heading and list markers on the
+    entries dropped. Outside a dry run, a reply with no ENGAGE heading
+    raises: the engagement list would otherwise come back empty unnoticed.
+    """
+    match = ENGAGE_KEY.search(text)
+    if match is None:
+        if not dry_run:
+            raise ValueError(f"no ENGAGE section in the literature reply: {text[:300]!r}")
+        return text.strip(), []
+    background = BACKGROUND_KEY.sub("", text[: match.start()], count=1).strip()
+    entries = [LIST_MARKER.sub("", line).strip() for line in text[match.end() :].splitlines()]
+    return background, [e for e in entries if e.strip("*_ ")]

@@ -114,3 +114,12 @@ def test_run_saves_nothing_on_dry_run(fake_llm, tmp_path):
     assert len(judgments) == 2
     assert all(j.winner_run is None for j in judgments)
     assert ctx.store.judgments("x") == []
+
+
+def test_normalise_drops_long_and_question_titles():
+    body = "The argument begins here and ends properly."
+    long_title = (
+        "Freedom Without a Floor: Why a Manipulated Agent Can Still Act Freely in the Ordinary Sense of the Term"
+    )
+    for title in (long_title, "Can a Determined Agent Act Freely?"):
+        assert normalise(f"{title}\n\n{body}") == body

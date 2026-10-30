@@ -1,3 +1,5 @@
+import pytest
+
 from aipc.config import load_config
 from aipc.context import Context
 from aipc.models import LiteraturePack, ThesisCandidate
@@ -105,3 +107,14 @@ def test_generate_reads_a_thesis_whose_keys_are_bold(fake_llm, tmp_path):
     )
     [candidate] = ideation_stage.generate_cold("metaethics", 1, _ctx(fake_llm, tmp_path, n=1))
     assert (candidate.claim, candidate.rationale) == ("Moral facts are mind-independent.", "It resists one.")
+
+
+def test_a_thesis_reply_in_title_case_is_read():
+    claim, rationale = ideation_stage._parse_thesis("**Thesis:** A claim.\n\n**Rationale:** A reason.", dry_run=False)
+    assert (claim, rationale) == ("A claim.", "A reason.")
+
+
+def test_a_thesis_reply_without_its_keys_raises_outside_a_dry_run():
+    with pytest.raises(ValueError, match="no THESIS and RATIONALE"):
+        ideation_stage._parse_thesis("Here is a hypothesis: something.", dry_run=False)
+    assert ideation_stage._parse_thesis("[dry-run: no call made]", dry_run=True)[0] == "[dry-run: no call made]"
