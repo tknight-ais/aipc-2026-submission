@@ -7,6 +7,9 @@ and B-D get exactly one critique round so the critique dose is constant:
 - B_critique: A, then one round of parallel critics and one revision.
 - C_structured: decomposition, flat ledger, draft, one critique round.
 - D_debate: C with the debate room in place of the flat ledger.
+- D0_debate: D without its critique round. With A, B and D it makes a
+  2x2: preparation (none or the debate room) by critique (none or one
+  round), so each component is compared with and without the other.
 - E_frontier_zero_shot: A, but written by the frontier tier. Not a ladder
   step: it asks whether a scaffolded cheap model beats a plain strong one.
 """
@@ -60,13 +63,14 @@ def load_experiment(path: Path) -> ExperimentConfig:
 def condition_config(
     base: Config, condition: str, generator_tier: str, seed: int, target_words: tuple[int, int] | None = None
 ) -> Config:
-    """The resolved config for one essay: one critique round, the
-    condition's ledger strategy and generator tier, the essay's own seed,
-    and the experiment's word target if it sets one.
+    """The resolved config for one essay: one critique round (none for
+    D0), the condition's ledger strategy and generator tier, the essay's
+    own seed, and the experiment's word target if it sets one.
     """
-    strategy = "debate_room" if condition == "D_debate" else "flat"
+    strategy = "debate_room" if condition in ("D_debate", "D0_debate") else "flat"
     tier = FRONTIER_TIER if condition == "E_frontier_zero_shot" else generator_tier
-    pipeline = base.pipeline.model_copy(update={"strategy": strategy, "max_revision_rounds": 1})
+    rounds = 0 if condition == "D0_debate" else 1
+    pipeline = base.pipeline.model_copy(update={"strategy": strategy, "max_revision_rounds": rounds})
     defaults = base.defaults.model_copy(update={"seed": seed, "tier": tier})
     limits = base.limits.model_copy(update={"target_words": target_words}) if target_words else base.limits
     return base.model_copy(update={"pipeline": pipeline, "defaults": defaults, "limits": limits})
@@ -112,6 +116,7 @@ CONDITIONS: dict[str, Callable[[str, Context], Essay]] = {
     "B_critique": write_critique,
     "C_structured": write_structured,
     "D_debate": write_structured,
+    "D0_debate": write_structured,
     "E_frontier_zero_shot": write_zero_shot,
 }
 

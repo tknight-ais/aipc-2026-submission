@@ -29,6 +29,14 @@ models:
   # and is $4/$20 on 2026-10-21.
   judge_gemini31pro: { id: "google/gemini-3.1-pro-preview", usd_per_mtok_in: 2.00, usd_per_mtok_out: 12.00 }
   judge_gpt56sol:    { id: "openai/gpt-5.6-sol",            usd_per_mtok_in: 4.00, usd_per_mtok_out: 20.00, supports_temperature: false }
+  # Exploratory second judges for the comparison, added 2026-10-29 after its
+  # results. Open-weight models from other families judge it only if they
+  # pass judge-select (6 of 9); Haiku is a same-family preview, reported
+  # either way.
+  judge_deepseek4pro: { id: "deepseek/deepseek-v4-pro-0813", usd_per_mtok_in: 0.66,   usd_per_mtok_out: 1.98 }
+  judge_glm53:        { id: "z-ai/glm-5.3",                  usd_per_mtok_in: 0.0699, usd_per_mtok_out: 1.40 }
+  judge_mistral4:     { id: "mistralai/mistral-large-4-0",   usd_per_mtok_in: 0.70,   usd_per_mtok_out: 2.10 }
+  judge_haiku55:      { id: "anthropic/claude-haiku-5.5",    usd_per_mtok_in: 0.10,   usd_per_mtok_out: 0.50, supports_seed: false, supports_temperature: false }
 
 # temperature applies only where a model supports it (see supports_*). The
 # judges keep 1.0: Google advises against lowering it for Gemini 3 models
@@ -52,9 +60,11 @@ limits:
   # (checked 2026-10-13), so the target leaves room for a reference list.
   # Lowered from [5000, 5400] on 2026-10-26 for the contest essay: an Opus
   # 5.5 probe ran 5% over its maximum and reached 5,880 words with its
-  # references, and the pipeline revises up to three times. An experiment
-  # can set its own target_words.
-  target_words: [4600, 5000]
+  # references, and the pipeline revises up to three times. Widened to
+  # [3000, 5000] on 2026-10-28 (Tom): the contest sets no minimum, and the
+  # essay should take the length its argument needs rather than be padded
+  # to a target. An experiment can set its own target_words.
+  target_words: [3000, 5000]
 
 pipeline:
   # Which Decomposition -> ContentLedger strategy runs - "flat" (one

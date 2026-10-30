@@ -17,6 +17,9 @@ from aipc.models import ContentLedger, Critique, Essay, FidelityReview, Revision
 from aipc.replies import is_none
 
 logger = logging.getLogger(__name__)
+# A section heading with any markdown around it: "UNSUPPORTED CLAIMS:", "**Unsupported claims:**".
+DROPPED_KEY = re.compile(r"^[\s*_#>]*DROPPED OBJECTIONS\b[*_]*:?[*_]*", re.IGNORECASE | re.MULTILINE)
+UNSUPPORTED_KEY = re.compile(r"^[\s*_#>]*UNSUPPORTED CLAIMS\b[*_]*:?[*_]*", re.IGNORECASE | re.MULTILINE)
 
 # A deliberately simple lexical heuristic for boldness erosion, not a
 # claim of semantic precision - cheap to log per round, which is the
@@ -148,9 +151,21 @@ def revise_free(essay: Essay, objections: list[str], ctx: Context) -> Essay:
 
 def check_fidelity(essay: Essay, ledger: ContentLedger, ctx: Context) -> FidelityReview:
     result = ctx.ask("fidelity", ledger_json=ledger_json(ledger), essay_text=essay.text)
-    dropped_part, _, claims_part = result.text.partition("UNSUPPORTED CLAIMS:")
-    dropped = dropped_part.replace("DROPPED OBJECTIONS:", "").strip()
-    return FidelityReview(dropped_objections=dropped, unsupported_claims=claims_part.strip())
+    return parse_fidelity(result.text, ctx.config.dry_run)
+
+
+def parse_fidelity(text: str, dry_run: bool) -> FidelityReview:
+    """The two sections of a fidelity reply, with markdown around either
+    heading dropped. Outside a dry run, a reply with no UNSUPPORTED CLAIMS
+    heading raises: both sections would otherwise land in the first.
+    """
+    match = UNSUPPORTED_KEY.search(text)
+    if match is None:
+        if not dry_run:
+            raise ValueError(f"no UNSUPPORTED CLAIMS section in the fidelity reply: {text[:300]!r}")
+        return FidelityReview(dropped_objections=text.strip(), unsupported_claims="")
+    dropped = DROPPED_KEY.sub("", text[: match.start()], count=1).strip()
+    return FidelityReview(dropped_objections=dropped, unsupported_claims=text[match.end() :].strip())
 
 
 def run(

@@ -143,3 +143,19 @@ def test_search_queries_drop_numbering_and_a_preamble(fake_llm, tmp_path):
     fake_llm.responses["literature_queries"] = "Queries:\n1. consequence argument\n2. compatibilism\n3. frankfurt cases"
     queries = literature_stage.search_queries("topic", _ctx(fake_llm, tmp_path))
     assert queries == ["consequence argument", "compatibilism", "frankfurt cases"]
+
+
+def test_parse_background_drops_markdown_around_headings_and_entries():
+    reply = (
+        "**BACKGROUND:**\nEngagement with the debate is broad.\n\n"
+        "## Engage\n1. **Frankfurt (1971)**: the target.\n- Fischer (1994): a reply.\n**"
+    )
+    background, entries = literature_stage.parse_background(reply, dry_run=False)
+    assert background == "Engagement with the debate is broad."
+    assert entries == ["**Frankfurt (1971)**: the target.", "Fischer (1994): a reply."]
+
+
+def test_parse_background_without_an_engage_section_raises_outside_a_dry_run():
+    with pytest.raises(ValueError, match="no ENGAGE section"):
+        literature_stage.parse_background("BACKGROUND:\nOnly background.", dry_run=False)
+    assert literature_stage.parse_background("[dry-run: no call made]", dry_run=True) == ("[dry-run: no call made]", [])

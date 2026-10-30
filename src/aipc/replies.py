@@ -12,8 +12,10 @@ NONE_MARKER = "NONE"
 # An upper-case A or B may be followed by more text ("WINNER: A (first)");
 # a lower-case one must end the line, so "Winner: a close call" is not a verdict.
 WINNER_PATTERN = re.compile(r"^\W*(?i:winner)\W*(?:(?i:essay)\s+)?(?:([AB])\b|([ab])\W*$)", re.MULTILINE)
-# The first PASS or FAIL after VERDICT, unless it is the echoed "PASS or FAIL".
-VERDICT_PATTERN = re.compile(r"^\W*VERDICT\W*(PASS|FAIL)\b(?!\s+or\b)", re.IGNORECASE | re.MULTILINE)
+# The PASS or FAIL after VERDICT, skipping an echoed "PASS or FAIL" from the prompt.
+VERDICT_PATTERN = re.compile(
+    r"^\W*VERDICT\W*(?:PASS\s+or\s+FAIL\W*)?(PASS|FAIL)\b(?!\s+or\b)", re.IGNORECASE | re.MULTILINE
+)
 # A `KEY: value` line, allowing the decoration models add around the key:
 # markdown emphasis, a bullet or number before it, a number after it
 # ("**CLAIM 1:**", "- REPLY TYPE:").
@@ -32,14 +34,21 @@ def is_none(reply: str) -> bool:
     return first_line.strip().strip("*_`").rstrip(".!").strip().upper() == NONE_MARKER
 
 
-def parse_verdict(reply: str) -> FilterVerdict:
-    """Reads the PASS/FAIL on the VERDICT line; an unreadable verdict fails,
-    with the whole reply kept as the reasoning.
+def parse_verdict(reply: str, dry_run: bool = False) -> FilterVerdict:
+    """Reads the PASS/FAIL on the VERDICT line. An unreadable verdict raises:
+    failing it would screen a candidate out on its format, and if every
+    thesis failed, ideation would fall back to an unscreened one without
+    saying so. A dry run's placeholder reply fails instead, kept whole.
     """
     match = VERDICT_PATTERN.search(reply)
+    if match is None:
+        if not dry_run:
+            raise ValueError(f"unreadable verdict: {reply[:300]!r}")
+        return FilterVerdict(passed=False, reasoning=reply.strip())
     _, found, reasoning = reply.partition("REASONING:")
-    passed = match is not None and match.group(1).upper() == "PASS"
-    return FilterVerdict(passed=passed, reasoning=reasoning.strip() if found and match else reply.strip())
+    return FilterVerdict(
+        passed=match.group(1).upper() == "PASS", reasoning=reasoning.strip() if found else reply.strip()
+    )
 
 
 def _key_value(line: str, keys: set[str]) -> tuple[str | None, str]:

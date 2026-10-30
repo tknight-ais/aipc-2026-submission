@@ -12,15 +12,21 @@ from aipc.llm import CallRecord, CallResult
 from aipc.models import ContentLedger
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+# Replies whose sections the parsers require; a test can override them.
+WELL_FORMED = {
+    "fidelity": "DROPPED OBJECTIONS:\nnone found\n\nUNSUPPORTED CLAIMS:\nnone found",
+    "literature_background": "BACKGROUND:\nA background.\n\nENGAGE:\nnone of the above are directly relevant",
+}
 
 
 class FakeLLM:
     """Drop-in replacement for LLMClient. Returns canned text keyed by
-    prompt_name; never makes a network call.
+    prompt_name; never makes a network call. Prompts whose replies must
+    have named sections get a well-formed default.
     """
 
     def __init__(self, responses: dict[str, str | list[str]] | None = None):
-        self.responses = responses or {}
+        self.responses = {**WELL_FORMED, **(responses or {})}
         self.calls = []
         self.total_cost_usd = 0.0
 

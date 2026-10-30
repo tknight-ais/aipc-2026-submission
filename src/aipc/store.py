@@ -326,6 +326,15 @@ class Store:
         )
         return path
 
+    def artifact_location(self, run_id: str, stage: str) -> Path:
+        """Where a run saved a stage's artifact; its last copy if it saved more than one."""
+        row = self.conn.execute(
+            "SELECT location FROM artifacts WHERE run_id = ? AND stage = ? ORDER BY id DESC LIMIT 1", (run_id, stage)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"run {run_id} saved no {stage!r} artifact")
+        return Path(row[0])
+
     def save_experiment_essay(
         self, experiment: str, thesis_id: str, condition: str, essay_index: int, run_id: str, essay_path: Path
     ) -> None:

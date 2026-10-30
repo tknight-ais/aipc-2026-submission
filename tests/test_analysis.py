@@ -179,3 +179,28 @@ def test_h4_gate_needs_the_whole_anchor_set_rated():
     args = ("x", "m", judgments)
     assert analysis.build_report(*args, human[:5], condition_of, words, words).h4_gate_pass is False
     assert analysis.build_report(*args, human, condition_of, words, words).h4_gate_pass is True
+
+
+def test_factorial_effects_read_the_2x2():
+    # Critique wins within each preparation level, and the debate room wins within each critique level.
+    beats = [
+        ("B_critique", "A_zero_shot"),
+        ("D_debate", "D0_debate"),
+        ("D0_debate", "A_zero_shot"),
+        ("D_debate", "B_critique"),
+        ("D_debate", "A_zero_shot"),
+    ]
+    judgments = [
+        j
+        for winner, loser in beats
+        for j in (_judgment(winner, loser, winner, winner), _judgment(winner, loser, loser, winner))
+    ]
+    condition_of = {c: c for c in analysis.FACTORIAL_CELLS}
+    outcomes = analysis.pair_outcomes(judgments)
+
+    effects = analysis.factorial_effects(outcomes, condition_of, list(analysis.FACTORIAL_CELLS))
+
+    assert effects is not None
+    assert effects["critique"].estimate > 0 and effects["debate_room"].estimate > 0
+    assert effects["critique"].ci_low <= effects["critique"].estimate <= effects["critique"].ci_high
+    assert analysis.factorial_effects(outcomes, condition_of, ["A_zero_shot", "B_critique"]) is None

@@ -145,3 +145,23 @@ def test_every_writing_prompt_carries_the_same_requirements(fake_llm, tmp_path, 
     for name, prompt in prompts.items():
         assert requirements in prompt, name
         assert "sources" not in prompt.replace(requirements, ""), f"{name} has its own source rule"
+
+
+def test_d0_is_the_debate_room_without_critique(fake_llm, tmp_path):
+    fake_llm.responses.update(
+        {
+            "decompose": "Q1?\nQ2?",
+            "validity_gate": "VERDICT: PASS\nREASONING: ok",
+            "decomposition_select": "CHOICE: 1\nREASONING: ok",
+            "debate_converge": "NONE",
+            "debate_synthesize": LEDGER_REPLY,
+            "draft": "Draft.",
+        }
+    )
+    essay, _ = experiment.write_essay("D0_debate", THESIS, _ctx(fake_llm, tmp_path, "D0_debate"))
+
+    names = [c["prompt_name"] for c in fake_llm.calls]
+    assert "debater_for" in names
+    assert not {"critic", "revise"} & set(names)
+    assert (essay.text, essay.rounds_used) == ("Draft.", 0)
+    assert {"decomposition", "ledger", "fidelity", "essay"} <= set(_artifacts(tmp_path))

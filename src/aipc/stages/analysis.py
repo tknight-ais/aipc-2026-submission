@@ -272,6 +272,20 @@ class StrengthEstimate(BaseModel):
     essay_ci_high: float
 
 
+# The 2x2 of 2026-10-28: preparation (none, debate room) by critique (none, one round).
+FACTORIAL_CELLS = ("A_zero_shot", "B_critique", "D0_debate", "D_debate")
+
+
+class EffectEstimate(BaseModel):
+    """A 2x2 effect in log-strength, with the same two intervals as a strength."""
+
+    estimate: float
+    ci_low: float
+    ci_high: float
+    essay_ci_low: float
+    essay_ci_high: float
+
+
 class Report(BaseModel):
     experiment: str
     judge_model: str
@@ -285,6 +299,7 @@ class Report(BaseModel):
     hedge_density: dict[str, float]
     word_count: dict[str, float]
     agreement: Agreement
+    factorial: dict[str, EffectEstimate] | None = None
     position_consistency_pass: bool
     h4_gate_pass: bool
 
@@ -304,6 +319,43 @@ def _strengths(
             essay_ci_high=by_essay[c][1],
         )
         for c in conditions
+    }
+
+
+def _effects(strength: dict[str, float]) -> dict[str, float]:
+    """Critique and the debate room each averaged over the other factor's
+    two levels, and how much the debate room changes critique's effect.
+    """
+    a, b, d0, d = (strength[c] for c in FACTORIAL_CELLS)
+    return {"critique": (b + d - a - d0) / 2, "debate_room": (d0 + d - a - b) / 2, "interaction": (d - d0) - (b - a)}
+
+
+def factorial_effects(
+    outcomes: list[PairOutcome], condition_of: dict[str, str], conditions: list[str]
+) -> dict[str, EffectEstimate] | None:
+    """The 2x2's two main effects and interaction, each resampled as the
+    strengths are; None unless all four cells were judged.
+    """
+    if not set(FACTORIAL_CELLS) <= set(conditions):
+        return None
+    point = _effects(bradley_terry(outcomes, condition_of, conditions))
+    intervals = {}
+    for unit, resample in (("pairs", resample_pairs), ("essays", resample_essays)):
+        rng = random.Random(BOOTSTRAP_SEED)
+        samples = defaultdict(list)
+        for _ in range(BOOTSTRAP_RESAMPLES):
+            for effect, value in _effects(bradley_terry(resample(outcomes, rng), condition_of, conditions)).items():
+                samples[effect].append(value)
+        intervals[unit] = {effect: _percentiles(values) for effect, values in samples.items()}
+    return {
+        effect: EffectEstimate(
+            estimate=value,
+            ci_low=intervals["pairs"][effect][0],
+            ci_high=intervals["pairs"][effect][1],
+            essay_ci_low=intervals["essays"][effect][0],
+            essay_ci_high=intervals["essays"][effect][1],
+        )
+        for effect, value in point.items()
     }
 
 
@@ -339,6 +391,7 @@ def build_report(
         hedge_density=mean_by_condition(hedge, condition_of),
         word_count=mean_by_condition(word_count, condition_of),
         agreement=agreement,
+        factorial=factorial_effects(outcomes, condition_of, conditions),
         position_consistency_pass=consistency >= POSITION_CONSISTENCY_BAR,
         h4_gate_pass=agreement.rated >= AGREEMENT_MIN_RATED and agreement.agreed / agreement.rated >= AGREEMENT_BAR,
     )

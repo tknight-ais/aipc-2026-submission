@@ -16,14 +16,17 @@ from aipc.context import Context
 from aipc.models import FilterVerdict, LiteraturePack, ScreenedThesis, ThesisCandidate
 from aipc.replies import parse_verdict
 
-THESIS_KEY = re.compile(r"[*_#\s]*THESIS[*_]*:[*_]*")
-RATIONALE_KEY = re.compile(r"[*_#\s]*RATIONALE[*_]*:[*_]*")
+THESIS_KEY = re.compile(r"[*_#\s]*\bTHESIS[*_]*:[*_]*", re.IGNORECASE)
+RATIONALE_KEY = re.compile(r"[*_#\s]*\bRATIONALE[*_]*:[*_]*", re.IGNORECASE)
 
 
-def _parse_thesis(text: str) -> tuple[str, str]:
+def _parse_thesis(text: str, dry_run: bool) -> tuple[str, str]:
     """(thesis, rationale): the text after THESIS and after RATIONALE, with
-    any markdown around either key dropped.
+    any markdown around either key dropped. Outside a dry run, a reply
+    missing either key raises: read whole, it would become the thesis.
     """
+    if not dry_run and not (THESIS_KEY.search(text) and RATIONALE_KEY.search(text)):
+        raise ValueError(f"no THESIS and RATIONALE in reply: {text[:300]!r}")
     thesis_part, _, rationale_part = RATIONALE_KEY.sub("RATIONALE:", text, count=1).partition("RATIONALE:")
     return THESIS_KEY.sub("", thesis_part, count=1).strip(), rationale_part.strip()
 
@@ -37,7 +40,7 @@ def _generate(
 ) -> list[ThesisCandidate]:
     candidates = []
     for _ in range(n):
-        thesis, rationale = _parse_thesis(ctx.ask(prompt_name, **fields).text)
+        thesis, rationale = _parse_thesis(ctx.ask(prompt_name, **fields).text, ctx.config.dry_run)
         candidates.append(ThesisCandidate(claim=thesis, origin=origin, rationale=rationale))
     return candidates
 
@@ -59,11 +62,13 @@ def generate_informed(topic: str, lit_pack: LiteraturePack, n: int, ctx: Context
 
 
 def check_significance(candidate: ThesisCandidate, ctx: Context) -> FilterVerdict:
-    return parse_verdict(ctx.ask("significance_filter", thesis=candidate.claim, rationale=candidate.rationale).text)
+    reply = ctx.ask("significance_filter", thesis=candidate.claim, rationale=candidate.rationale).text
+    return parse_verdict(reply, ctx.config.dry_run)
 
 
 def check_novelty(candidate: ThesisCandidate, lit_pack: LiteraturePack, ctx: Context) -> FilterVerdict:
-    return parse_verdict(ctx.ask("novelty_filter", thesis=candidate.claim, sources=_sources_text(lit_pack)).text)
+    reply = ctx.ask("novelty_filter", thesis=candidate.claim, sources=_sources_text(lit_pack)).text
+    return parse_verdict(reply, ctx.config.dry_run)
 
 
 def screen(candidates: list[ThesisCandidate], lit_pack: LiteraturePack, ctx: Context) -> list[ScreenedThesis]:
