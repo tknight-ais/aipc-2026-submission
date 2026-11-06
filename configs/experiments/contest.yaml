@@ -1,11 +1,25 @@
-# Contest essay run, a template. Fill in after the frontier comparison:
-#   condition: the method that won the frontier tournament;
-#   theses: from `aipc ideate --topic ... --tier frontier`, then
-#   `aipc draw-theses --n 3`, pasted unedited.
-# Then: aipc experiment, aipc select --experiment contest, aipc check, aipc export.
-name: contest
+# An example experiment config, in the format `aipc experiment` reads. It
+# mirrors the contest comparison's design with a placeholder thesis: real
+# configs name their theses, so they stay private until the contest's
+# judging ends. Theses come from `aipc ideate`, then `aipc draw-theses`,
+# pasted unedited.
+#
+# The submitted contest essay did not come from an experiment config. It
+# came from one run of the full pipeline from the question alone:
+#   aipc generate --tier frontier --strategy debate_room --no-evaluate
+# The comparison was then given the thesis that run chose.
+name: example
 seed: 1
-essays_per_condition: 1
+essays_per_condition: 4
 generator_tier: frontier
-conditions: []
-theses: []
+conditions:
+- A_zero_shot
+- B_critique
+- D0_debate
+- D_debate
+target_words:
+- 3000
+- 5000
+theses:
+- id: t1
+  claim: A placeholder. Paste a thesis drawn by `aipc draw-theses` here, unedited.
